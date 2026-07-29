@@ -1,5 +1,5 @@
 import aiohttp
-from config.settings import WEBSITE_URL
+from config.settings import WEBSITE_URL, API_KEY
 
 
 async def send_to_website(signal):
