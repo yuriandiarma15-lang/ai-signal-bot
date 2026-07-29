@@ -1,19 +1,11 @@
 import asyncio
-
 from datetime import datetime, timedelta
 
 import pytz
 
-
-from services.signal_builder import (
-    build_signal
-)
-
-
-from services.sender import (
-    send_signal_to_members
-)
-
+from services.signal_builder import build_signal
+from services.sender import send_signal_to_members
+from services.website import send_signal_to_website
 
 
 WIB = pytz.timezone(
@@ -21,10 +13,10 @@ WIB = pytz.timezone(
 )
 
 
-
 # =====================================
 # CHECK TRADING SESSION
 # =====================================
+
 def trading_open():
 
     now = datetime.now(WIB)
@@ -41,7 +33,6 @@ def trading_open():
     )
 
 
-    # Mulai signal
     start = (
         6 * 60
         +
@@ -49,7 +40,6 @@ def trading_open():
     )
 
 
-    # Berakhir sesi malam
     end = (
         2 * 60
         +
@@ -58,9 +48,9 @@ def trading_open():
 
 
     # ==========================
-    # MINGGU
-    # FULL CLOSED
+    # MINGGU CLOSED
     # ==========================
+
     if weekday == 6:
 
         return False
@@ -69,8 +59,9 @@ def trading_open():
 
     # ==========================
     # SABTU
-    # HANYA SAMPAI 02:15
+    # hanya sampai 02:15
     # ==========================
+
     if weekday == 5:
 
         if current_minutes <= end:
@@ -84,16 +75,13 @@ def trading_open():
     # ==========================
     # SENIN
     # ==========================
+
     if weekday == 0:
 
-
-        # Senin dini hari tutup
-        # Tunggu sesi baru jam 07:00
 
         if current_minutes < start:
 
             return False
-
 
 
         return True
@@ -103,11 +91,11 @@ def trading_open():
     # ==========================
     # SELASA - JUMAT
     # ==========================
-    if weekday in [1, 2, 3, 4]:
+
+    if weekday in [1,2,3,4]:
 
 
         # 00:00 - 02:15
-        # lanjutan sesi sebelumnya
 
         if current_minutes <= end:
 
@@ -128,30 +116,45 @@ def trading_open():
 
 
 
+
 # =====================================
 # NEXT SIGNAL TIME
 # =====================================
+
 def next_signal_time():
 
     now = datetime.now(WIB)
 
+
     target = now.replace(
+
         minute=0,
+
         second=0,
+
         microsecond=0
+
     )
+
 
     target += timedelta(hours=1)
 
 
+
     while True:
+
 
         weekday = target.weekday()
 
+
         current_minutes = (
+
             target.hour * 60
+
             +
+
             target.minute
+
         )
 
 
@@ -161,6 +164,7 @@ def next_signal_time():
             55
         )
 
+
         end = (
             2 * 60
             +
@@ -168,87 +172,139 @@ def next_signal_time():
         )
 
 
+
         # ==========================
         # MINGGU
         # ==========================
+
         if weekday == 6:
 
+
             target = (
+
                 target
+
                 +
+
                 timedelta(days=1)
+
             ).replace(
+
                 hour=7,
+
                 minute=0,
+
                 second=0,
+
                 microsecond=0
+
             )
+
 
             continue
 
 
 
+
         # ==========================
-        # SABTU SETELAH 02:15
+        # SABTU
         # ==========================
+
         if weekday == 5:
+
 
             if current_minutes > end:
 
+
                 target = (
+
                     target
+
                     +
+
                     timedelta(days=2)
+
                 ).replace(
+
                     hour=7,
+
                     minute=0,
+
                     second=0,
+
                     microsecond=0
+
                 )
+
 
                 continue
 
 
 
+
+
         # ==========================
-        # SENIN DINI HARI
+        # SENIN
         # ==========================
+
         if weekday == 0:
+
 
             if current_minutes < start:
 
+
                 target = target.replace(
+
                     hour=7,
+
                     minute=0,
+
                     second=0,
+
                     microsecond=0
+
                 )
 
+
                 break
+
+
 
 
 
         # ==========================
         # SELASA - JUMAT
         # ==========================
+
         if weekday in [1,2,3,4]:
+
 
             if end < current_minutes < start:
 
+
                 target = target.replace(
+
                     hour=7,
+
                     minute=0,
+
                     second=0,
+
                     microsecond=0
+
                 )
 
+
                 break
+
 
 
         break
 
 
+
     return target
+
 
 
 
@@ -257,9 +313,7 @@ def next_signal_time():
 # SIGNAL LOOP
 # =====================================
 
-async def signal_scheduler(
-    bot
-):
+async def signal_scheduler(bot):
 
 
     print(
@@ -271,9 +325,9 @@ async def signal_scheduler(
     while True:
 
 
-        now = datetime.now(
-            WIB
-        )
+
+        now = datetime.now(WIB)
+
 
 
         next_run = next_signal_time()
@@ -303,11 +357,17 @@ async def signal_scheduler(
 
 
         await asyncio.sleep(
+
             max(
+
                 wait,
+
                 1
+
             )
+
         )
+
 
 
 
@@ -327,6 +387,7 @@ async def signal_scheduler(
 
 
 
+
         print(
 
             "GENERATING SIGNAL..."
@@ -334,6 +395,10 @@ async def signal_scheduler(
         )
 
 
+
+        # ==========================
+        # BUILD SIGNAL
+        # ==========================
 
         signal = build_signal()
 
@@ -347,7 +412,13 @@ async def signal_scheduler(
 
 
 
-        result = await send_signal_to_members(
+
+
+        # ==========================
+        # TELEGRAM LANGSUNG
+        # ==========================
+
+        telegram_result = await send_signal_to_members(
 
             bot,
 
@@ -359,8 +430,58 @@ async def signal_scheduler(
 
         print(
 
-            "SEND RESULT:",
+            "TELEGRAM RESULT:",
 
-            result
+            telegram_result
+
+        )
+
+
+
+
+
+        # ==========================
+        # WEBSITE DELAY 1 JAM
+        # ==========================
+
+        print(
+
+            "WAITING 1 HOUR BEFORE WEBSITE UPDATE..."
+
+        )
+
+
+
+        await asyncio.sleep(
+
+            60 * 60
+
+        )
+
+
+
+
+
+        website_result = await send_signal_to_website(
+
+            signal
+
+        )
+
+
+
+        print(
+
+            "WEBSITE RESULT:",
+
+            website_result
+
+        )
+
+
+
+        print(
+
+            "SIGNAL PROCESS COMPLETE"
 
         )
