@@ -37,9 +37,6 @@ def parse_signal(message: str):
 
         # ----------------------------
         # ENTRY
-        # contoh:
-        # BUY LIMIT @ 4046.29
-        # SELL LIMIT @ 4058.12
         # ----------------------------
         entry = re.search(
             r"(BUY|SELL)\s+LIMIT\s*@\s*([0-9]+(?:\.[0-9]+)?)",
@@ -113,7 +110,14 @@ def parse_signal(message: str):
 
             "tp2_price": float(
                 tp2.group(1)
-            )
+            ),
+
+            # ==========================
+            # KIRIM WAKTU SIGNAL (WIB)
+            # ==========================
+            "signal_time": datetime.now(
+                ZoneInfo("Asia/Jakarta")
+            ).isoformat()
 
         }
 
@@ -177,7 +181,12 @@ async def send_signal_to_website(signal):
                 print("🌐 WEBSITE RESULT :", result)
 
                 if response.status in (200, 201):
+
+                    print("✅ WEBSITE BERHASIL UPDATE")
+
                     return True
+
+                print("❌ WEBSITE GAGAL UPDATE")
 
                 return False
 
