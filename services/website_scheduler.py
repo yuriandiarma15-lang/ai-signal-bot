@@ -1,20 +1,13 @@
 import asyncio
-from datetime import datetime
-
-import pytz
 
 from services.pending import (
-    load_pending_signal,
-    clear_pending_signal
+    get_ready_signals,
+    mark_as_sent,
+    clean_sent
 )
 
 from services.website import (
     send_signal_to_website
-)
-
-
-WIB = pytz.timezone(
-    "Asia/Jakarta"
 )
 
 
@@ -24,49 +17,38 @@ async def website_scheduler():
         "🌐 WEBSITE SCHEDULER ACTIVE"
     )
 
-    last_hour = None
-
     while True:
 
-        now = datetime.now(WIB)
+        ready = get_ready_signals()
 
-        # Jalankan tepat di menit 00 setiap jam
-        if now.minute == 0 and now.hour != last_hour:
+        for item in ready:
 
-            last_hour = now.hour
+            print(
+                "📤 MENGIRIM SIGNAL KE WEBSITE..."
+            )
 
-            signal = load_pending_signal()
+            success = await send_signal_to_website(
+                item["signal"]
+            )
 
-            if signal:
+            if success:
+
+                mark_as_sent(
+                    item["signal"]
+                )
 
                 print(
-                    "📤 MENGIRIM SIGNAL KE WEBSITE..."
+                    "✅ WEBSITE UPDATE BERHASIL"
                 )
-
-                success = await send_signal_to_website(
-                    signal
-                )
-
-                if success:
-
-                    clear_pending_signal()
-
-                    print(
-                        "✅ WEBSITE UPDATE BERHASIL"
-                    )
-
-                else:
-
-                    print(
-                        "❌ WEBSITE UPDATE GAGAL"
-                    )
 
             else:
 
                 print(
-                    "📭 TIDAK ADA SIGNAL PENDING"
+                    "❌ WEBSITE UPDATE GAGAL"
                 )
 
+        clean_sent()
+
         await asyncio.sleep(
-            20
+            30
         )
