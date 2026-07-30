@@ -1,3 +1,5 @@
+import asyncio
+
 from aiogram import Router, F
 from aiogram.types import Message
 
@@ -24,7 +26,7 @@ def is_admin(username):
     return (
         username.lower()
         ==
-        ADMIN_USERNAME.replace("@","").lower()
+        ADMIN_USERNAME.replace("@", "").lower()
     )
 
 
@@ -78,7 +80,6 @@ Bot Signal XAU AI Assistant
 )
 async def test_signal(message: Message):
 
-
     if not is_admin(
         message.from_user.username
     ):
@@ -112,7 +113,6 @@ async def test_signal(message: Message):
 
     for member in members:
 
-
         try:
 
             await message.bot.send_message(
@@ -129,6 +129,12 @@ async def test_signal(message: Message):
 
 
             total += 1
+
+
+
+            # jeda agar tidak spam Telegram
+
+            await asyncio.sleep(2)
 
 
 
@@ -150,7 +156,7 @@ async def test_signal(message: Message):
 
 Jumlah member:
 
-{total}
+<b>{total}</b>
 """,
 
         parse_mode="HTML"
@@ -159,14 +165,14 @@ Jumlah member:
 
 
 
-
-
 # ==========================
 # SEND PERSONAL USER ID
+# MULTIPLE USER + PHOTO
 # ==========================
 
 @router.message(
-    F.text.startswith("/sent")
+    F.text.startswith("/sent") |
+    F.caption.startswith("/sent")
 )
 async def send_personal(
     message: Message
@@ -180,7 +186,19 @@ async def send_personal(
 
 
 
-    data = message.text.replace(
+    data = (
+
+        message.text
+
+        if message.text
+
+        else message.caption
+
+    )
+
+
+
+    data = data.replace(
         "/sent",
         ""
     ).strip()
@@ -195,11 +213,12 @@ async def send_personal(
             """
 Format:
 
-/sent USER_ID PESAN
+/sent USER_ID1,USER_ID2 PESAN
+
 
 Contoh:
 
-/sent 1305881282 Halo member
+/sent 1305881282,987654321 Halo member
 """
 
         )
@@ -226,7 +245,7 @@ Format salah.
 
 Gunakan:
 
-/sent USER_ID PESAN
+/sent USER_ID1,USER_ID2 PESAN
 """
 
         )
@@ -236,57 +255,107 @@ Gunakan:
 
 
 
-    user_id = split[0]
+    user_ids = split[0].split(",")
 
     text = split[1]
 
 
 
-
-    try:
-
-
-        await message.bot.send_message(
-
-            chat_id=int(user_id),
-
-            text=text,
-
-            parse_mode="HTML"
-
-        )
+    total = 0
 
 
 
-        await message.answer(
+    for user_id in user_ids:
 
-            f"""
-✅ Pesan terkirim
 
-User ID:
-<code>{user_id}</code>
+        user_id = user_id.strip()
+
+
+
+        try:
+
+
+
+            # Jika ada gambar
+
+            if message.photo:
+
+
+                await message.bot.send_photo(
+
+                    chat_id=int(user_id),
+
+                    photo=message.photo[-1].file_id,
+
+                    caption=text,
+
+                    parse_mode="HTML"
+
+                )
+
+
+            else:
+
+
+                await message.bot.send_message(
+
+                    chat_id=int(user_id),
+
+                    text=text,
+
+                    parse_mode="HTML"
+
+                )
+
+
+
+            total += 1
+
+
+
+            print(
+                "Terkirim:",
+                user_id
+            )
+
+
+
+            # jeda antar user
+
+            await asyncio.sleep(2)
+
+
+
+        except Exception as e:
+
+
+            print(
+
+                "Gagal kirim:",
+
+                user_id,
+
+                e
+
+            )
+
+
+
+
+    await message.answer(
+
+        f"""
+✅ <b>PESAN SELESAI DIKIRIM</b>
+
+Berhasil:
+
+<b>{total}</b>
+
+Target:
+
+<b>{len(user_ids)}</b>
 """,
 
-            parse_mode="HTML"
+        parse_mode="HTML"
 
-        )
-
-
-
-
-    except Exception as e:
-
-
-        await message.answer(
-
-            f"""
-❌ Gagal kirim
-
-User ID:
-{user_id}
-
-Error:
-{e}
-"""
-
-        )
+    )
