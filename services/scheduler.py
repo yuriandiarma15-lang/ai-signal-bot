@@ -6,7 +6,7 @@ import pytz
 from services.signal_builder import build_signal
 from services.sender import send_signal_to_members
 from services.website import send_signal_to_website
-
+from services.pending import save_pending_signal
 
 WIB = pytz.timezone(
     "Asia/Jakarta"
@@ -402,16 +402,7 @@ async def signal_scheduler(bot):
 
         signal = build_signal()
 
-
-
-        print(
-
-            signal
-
-        )
-
-
-
+        print(signal)
 
 
         # ==========================
@@ -426,8 +417,6 @@ async def signal_scheduler(bot):
 
         )
 
-
-
         print(
 
             "TELEGRAM RESULT:",
@@ -436,4 +425,20 @@ async def signal_scheduler(bot):
 
         )
 
+
+        # ==========================
+        # SIMPAN UNTUK WEBSITE
+        # ==========================
+
+        save_pending_signal(
+            signal
+        )
+
+        print(
+            "SIGNAL DISIMPAN UNTUK WEBSITE (+1 JAM)"
+        )
+
+        print(
+            "SIGNAL PROCESS COMPLETE"
+        )
 
