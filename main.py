@@ -17,6 +17,9 @@ from services.scheduler import (
     signal_scheduler
 )
 
+from services.website_scheduler import (
+    website_scheduler
+)
 
 
 
@@ -95,6 +98,18 @@ async def main():
     )
 
 
+    # ======================
+    # START WEBSITE ENGINE
+    # ======================
+
+
+    asyncio.create_task(
+
+        website_scheduler()
+
+    )
+
+
 
     print(
         "📊 MARKET ANALYSIS ENGINE ACTIVE"
@@ -106,6 +121,10 @@ async def main():
         "⏰ AUTO SIGNAL EVERY HOUR ACTIVE"
     )
 
+
+    print(
+        "🌐 WEBSITE DELAY SCHEDULER ACTIVE"
+    )
 
 
 
