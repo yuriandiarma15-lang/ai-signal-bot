@@ -1,7 +1,12 @@
-from datetime import datetime, timezone
+from datetime import datetime
+
+import pytz
 
 from services.market import get_price
 from services.analysis import analyze_market
+
+
+WIB = pytz.timezone("Asia/Jakarta")
 
 
 # =====================================
@@ -41,7 +46,9 @@ def build_signal():
 
     reason_text = "\n".join(f"- {x}" for x in reasons)
 
-    now = datetime.now(timezone.utc).strftime("%d-%m-%Y %H:%M UTC")
+    now = datetime.now(WIB).strftime(
+        "%d-%m-%Y %H:%M WIB"
+    )
 
     message = (
         f"📊 <b>XAUUSD SIGNAL</b>\n"
