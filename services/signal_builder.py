@@ -57,7 +57,7 @@ from datetime import datetime
 from typing import List, Optional, Tuple
 from zoneinfo import ZoneInfo
 
-from twelvedata_client import Candle, fetch_candles
+from .twelvedata_client import Candle, fetch_candles
 from smc_analyzer import analyze, SMCResult
 from entry_reason_bank import (
     get_entry_reason,
