@@ -1659,6 +1659,47 @@ def build_signal(
 
 
 # =========================================================
+# PRICE DISPLAY
+# =========================================================
+
+def _price_display(
+    price
+) -> str:
+    """
+    Format harga XAUUSD untuk tampilan Telegram.
+
+    Contoh:
+        4607.70 -> 4607
+        4612.70 -> 4612
+        4600.70 -> 4600
+        4592.70 -> 4592
+        4607.32 -> 4607
+        4608.08 -> 4608
+
+    Catatan:
+    Hanya tampilan yang dibulatkan.
+    Perhitungan internal SL/TP tetap menggunakan
+    harga asli.
+    """
+
+    if price is None:
+        return "-"
+
+    try:
+        return str(
+            int(
+                float(price)
+            )
+        )
+
+    except (
+        TypeError,
+        ValueError,
+    ):
+        return "-"
+
+
+# =========================================================
 # FORMAT SIGNAL
 # =========================================================
 
@@ -1696,36 +1737,60 @@ def format_signal_message(
 
         "",
 
+        # =================================================
+        # ENTRY
+        # =================================================
+
         (
             f"{entry_label} : "
-            f"`{sig.entry_price:.2f}`"
+            f"`{_price_display(sig.entry_price)}`"
         ),
+
+        # =================================================
+        # SL
+        # =================================================
 
         (
             f"🛑 SL     : "
-            f"`{sig.sl:.2f}` "
+            f"`{_price_display(sig.sl)}` "
             f"(-{SL_PIPS} pip)"
         ),
 
+        # =================================================
+        # TP1
+        # =================================================
+
         (
             f"✅ TP1    : "
-            f"`{sig.tp1:.2f}` "
+            f"`{_price_display(sig.tp1)}` "
             f"(+{TP1_PIPS} pip)"
         ),
 
+        # =================================================
+        # TP2
+        # =================================================
+
         (
             f"✅ TP2    : "
-            f"`{sig.tp2:.2f}` "
+            f"`{_price_display(sig.tp2)}` "
             f"(+{TP2_PIPS} pip)"
         ),
 
         "",
+
+        # =================================================
+        # RR
+        # =================================================
 
         (
             f"📐 RR      : "
             f"TP1 1:{sig.rr_tp1:.2f} | "
             f"TP2 1:{sig.rr_tp2:.2f}"
         ),
+
+        # =================================================
+        # PROBABILITY
+        # =================================================
 
         (
             f"📈 Probabilitas: "
@@ -1734,11 +1799,19 @@ def format_signal_message(
 
         "",
 
+        # =================================================
+        # ZONE TYPE
+        # =================================================
+
         (
             f"📍 Zona: "
             f"{sig.zone_type or '-'}"
         ),
     ]
+
+    # =====================================================
+    # ZONE AREA
+    # =====================================================
 
     if (
         sig.zone_low is not None
@@ -1748,10 +1821,14 @@ def format_signal_message(
         lines.append(
             (
                 f"📏 Area: "
-                f"`{sig.zone_low:.2f} - "
-                f"{sig.zone_high:.2f}`"
+                f"`{_price_display(sig.zone_low)} - "
+                f"{_price_display(sig.zone_high)}`"
             )
         )
+
+    # =====================================================
+    # ZONE STATUS
+    # =====================================================
 
     lines += [
 
@@ -1778,6 +1855,10 @@ def format_signal_message(
         "🧠 Alasan entry:",
     ]
 
+    # =====================================================
+    # REASONS
+    # =====================================================
+
     for i, reason in enumerate(
         sig.reasons,
         1,
@@ -1788,6 +1869,50 @@ def format_signal_message(
                 f"{i}. {reason}"
             )
         )
+
+    # =====================================================
+    # PENDING ORDER
+    # =====================================================
+
+    if sig.is_pending:
+
+        lines += [
+
+            "",
+
+            _wrap_reason(
+                f"⏳ Pasang {sig.order_type} "
+                f"di harga entry di atas."
+            ),
+
+            _wrap_reason(
+                f"Jika dalam "
+                f"{PENDING_ORDER_TIMEOUT_MINUTES} menit "
+                f"belum tersentuh, signal dianggap "
+                f"batal dan tidak perlu entry lagi."
+            ),
+        ]
+
+    # =====================================================
+    # FOOTER
+    # =====================================================
+
+    lines += [
+
+        "",
+
+        "⚠️ _Signal berbasis AI (SMC), bukan jaminan profit._",
+
+        "_Selalu gunakan money management pribadi._",
+
+        "",
+
+        "🤖 _Signal ini dihasilkan oleh AI Agent Gold_",
+    ]
+
+    return "\n".join(
+        lines
+    )
 
     # =====================================================
     # PENDING
