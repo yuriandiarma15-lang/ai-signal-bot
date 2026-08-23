@@ -15,7 +15,7 @@ Semua fungsi bekerja pada list Candle (lama -> baru) dari twelvedata_client.
 from dataclasses import dataclass, field
 from typing import List, Optional, Literal
 
-from twelvedata_client import Candle
+from .twelvedata_client import Candle
 
 Direction = Literal["bullish", "bearish"]
 
