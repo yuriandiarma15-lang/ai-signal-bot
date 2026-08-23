@@ -2,7 +2,8 @@
 GLOBAL SETTINGS
 XAU AI SIGNAL BOT
 
-Berisi seluruh konfigurasi:
+Satu sumber konfigurasi utama untuk:
+
 - Telegram
 - Twelve Data
 - SMC Engine
@@ -14,11 +15,14 @@ Berisi seluruh konfigurasi:
 - Website
 - Session
 - Timezone
+- Scheduler
+- Signal
 
-Credential tetap diambil dari .env
+Credential diambil dari .env
 """
 
 import os
+
 from dotenv import load_dotenv
 
 
@@ -30,42 +34,152 @@ load_dotenv()
 
 
 # =========================================================
+# HELPER
+# =========================================================
+
+def env(
+    name: str,
+    default: str = "",
+) -> str:
+
+    return os.getenv(
+        name,
+        default,
+    ).strip()
+
+
+def env_int(
+    name: str,
+    default: int,
+) -> int:
+
+    try:
+
+        return int(
+            env(
+                name,
+                str(default),
+            )
+        )
+
+    except (
+        TypeError,
+        ValueError,
+    ):
+
+        return default
+
+
+def env_float(
+    name: str,
+    default: float,
+) -> float:
+
+    try:
+
+        return float(
+            env(
+                name,
+                str(default),
+            )
+        )
+
+    except (
+        TypeError,
+        ValueError,
+    ):
+
+        return default
+
+
+def env_bool(
+    name: str,
+    default: bool = False,
+) -> bool:
+
+    value = env(
+        name,
+        str(default),
+    ).lower()
+
+    return value in (
+        "1",
+        "true",
+        "yes",
+        "on",
+    )
+
+
+# =========================================================
 # TELEGRAM BOT
 # =========================================================
 
-BOT_TOKEN = os.getenv(
+BOT_TOKEN = env(
     "BOT_TOKEN",
-    ""
+)
+
+
+# Kompatibilitas dengan sender lama
+TELEGRAM_BOT_TOKEN = BOT_TOKEN
+
+
+TELEGRAM_CHAT_ID = env(
+    "TELEGRAM_CHAT_ID",
 )
 
 
 # =========================================================
-# MARKET DATA
+# MARKET DATA - TWELVE DATA
 # =========================================================
 
-TWELVE_TOKEN = os.getenv(
+TWELVE_TOKEN = env(
     "TWELVE_TOKEN",
-    ""
 )
 
 
+# Nama standar baru
+TWELVEDATA_API_KEY = TWELVE_TOKEN
+
+
 # =========================================================
-# SMC REAL ENGINE
+# SYMBOL
 # =========================================================
 
-SMC_SYMBOL = os.getenv(
+SYMBOL = env(
+    "SYMBOL",
+    "XAU/USD",
+)
+
+
+SMC_SYMBOL = env(
     "SMC_SYMBOL",
-    "XAU/USD"
+    SYMBOL,
 )
 
-SMC_TF_STRUCTURE = os.getenv(
+
+# =========================================================
+# TIMEZONE
+# =========================================================
+
+TIMEZONE = env(
+    "SIGNAL_TIMEZONE",
+    "Asia/Jakarta",
+)
+
+
+# =========================================================
+# SMC TIMEFRAME
+# =========================================================
+
+SMC_TF_STRUCTURE = env(
     "SMC_TF_STRUCTURE",
-    "5min"
+    "5min",
 )
 
-SMC_TF_ENTRY = os.getenv(
+
+SMC_TF_ENTRY = env(
     "SMC_TF_ENTRY",
-    "1min"
+    "1min",
 )
 
 
@@ -73,36 +187,29 @@ SMC_TF_ENTRY = os.getenv(
 # CANDLE SETTINGS
 # =========================================================
 
-# Struktur utama:
-# 12 candle M5 = 1 jam
+# Manual:
+# 12 closed M5 candle
 
-SMC_CANDLES_FOR_STRUCTURE = int(
-    os.getenv(
-        "SMC_CANDLES_FOR_STRUCTURE",
-        "12"
-    )
+SMC_CANDLES_FOR_STRUCTURE = env_int(
+    "SMC_CANDLES_FOR_STRUCTURE",
+    12,
 )
 
 
-# Scheduler mengambil lebih banyak candle
-# supaya swing / BOS / CHoCH / OB / FVG
-# memiliki data yang cukup.
+# Scheduler:
+# data struktur lebih banyak
 
-SMC_CANDLES_LOOKBACK = int(
-    os.getenv(
-        "SMC_CANDLES_LOOKBACK",
-        "60"
-    )
+SMC_CANDLES_LOOKBACK = env_int(
+    "SMC_CANDLES_LOOKBACK",
+    60,
 )
 
 
-# Candle M1 untuk timing entry
+# M1 entry timing
 
-SMC_CANDLES_ENTRY_LOOKBACK = int(
-    os.getenv(
-        "SMC_CANDLES_ENTRY_LOOKBACK",
-        "30"
-    )
+SMC_CANDLES_ENTRY_LOOKBACK = env_int(
+    "SMC_CANDLES_ENTRY_LOOKBACK",
+    30,
 )
 
 
@@ -118,35 +225,28 @@ SMC_CANDLES_ENTRY_LOOKBACK = int(
 # TP1 70 pip = 7.00
 # TP2 150 pip = 15.00
 
-SMC_PIP_VALUE = float(
-    os.getenv(
-        "SMC_PIP_VALUE",
-        "0.1"
-    )
+
+SMC_PIP_VALUE = env_float(
+    "SMC_PIP_VALUE",
+    0.1,
 )
 
 
-SMC_SL_PIPS = float(
-    os.getenv(
-        "SMC_SL_PIPS",
-        "50"
-    )
+SMC_SL_PIPS = env_float(
+    "SMC_SL_PIPS",
+    50,
 )
 
 
-SMC_TP1_PIPS = float(
-    os.getenv(
-        "SMC_TP1_PIPS",
-        "70"
-    )
+SMC_TP1_PIPS = env_float(
+    "SMC_TP1_PIPS",
+    70,
 )
 
 
-SMC_TP2_PIPS = float(
-    os.getenv(
-        "SMC_TP2_PIPS",
-        "150"
-    )
+SMC_TP2_PIPS = env_float(
+    "SMC_TP2_PIPS",
+    150,
 )
 
 
@@ -155,20 +255,20 @@ SMC_TP2_PIPS = float(
 # =========================================================
 
 SMC_SL_DISTANCE = (
-    SMC_SL_PIPS *
-    SMC_PIP_VALUE
+    SMC_SL_PIPS
+    * SMC_PIP_VALUE
 )
 
 
 SMC_TP1_DISTANCE = (
-    SMC_TP1_PIPS *
-    SMC_PIP_VALUE
+    SMC_TP1_PIPS
+    * SMC_PIP_VALUE
 )
 
 
 SMC_TP2_DISTANCE = (
-    SMC_TP2_PIPS *
-    SMC_PIP_VALUE
+    SMC_TP2_PIPS
+    * SMC_PIP_VALUE
 )
 
 
@@ -176,59 +276,27 @@ SMC_TP2_DISTANCE = (
 # ENTRY SETTINGS
 # =========================================================
 
-# Jika zona sangat dekat dengan harga sekarang,
-# bot boleh langsung market.
-
-SMC_MARKET_ENTRY_TOLERANCE = float(
-    os.getenv(
-        "SMC_MARKET_ENTRY_TOLERANCE",
-        "0.3"
-    )
+SMC_MARKET_ENTRY_TOLERANCE = env_float(
+    "SMC_MARKET_ENTRY_TOLERANCE",
+    0.3,
 )
 
 
-# =========================================================
-# MAX ZONE DISTANCE
-# =========================================================
-
-# Zona OB/FVG yang terlalu jauh dari harga sekarang
-# tidak dipaksa menjadi pending order.
-#
-# Default:
-#
-# SL = 5 USD
-# MAX ZONE_DISTANCE = 7.5 USD
-
-SMC_MAX_ZONE_DISTANCE = float(
-    os.getenv(
-        "SMC_MAX_ZONE_DISTANCE",
-        str(SMC_SL_DISTANCE * 1.5)
-    )
+SMC_MAX_ZONE_DISTANCE = env_float(
+    "SMC_MAX_ZONE_DISTANCE",
+    SMC_SL_DISTANCE * 1.5,
 )
 
 
-# =========================================================
-# ZONE TOUCH
-# =========================================================
-
-# Jumlah candle M1 terakhir untuk validasi
-# apakah zona sedang disentuh / diretest.
-
-SMC_ZONE_TOUCH_LOOKBACK = int(
-    os.getenv(
-        "SMC_ZONE_TOUCH_LOOKBACK",
-        "10"
-    )
+SMC_ZONE_TOUCH_LOOKBACK = env_int(
+    "SMC_ZONE_TOUCH_LOOKBACK",
+    10,
 )
 
 
-# Minimum candle entry yang harus tersedia.
-
-SMC_MIN_ENTRY_CANDLES = int(
-    os.getenv(
-        "SMC_MIN_ENTRY_CANDLES",
-        "10"
-    )
+SMC_MIN_ENTRY_CANDLES = env_int(
+    "SMC_MIN_ENTRY_CANDLES",
+    10,
 )
 
 
@@ -236,23 +304,37 @@ SMC_MIN_ENTRY_CANDLES = int(
 # PENDING ORDER
 # =========================================================
 
-SMC_PENDING_TIMEOUT_MINUTES = int(
-    os.getenv(
-        "SMC_PENDING_TIMEOUT_MINUTES",
-        "20"
-    )
+SMC_PENDING_TIMEOUT_MINUTES = env_int(
+    "SMC_PENDING_TIMEOUT_MINUTES",
+    20,
+)
+
+
+# Alias untuk file lama
+PENDING_ORDER_TIMEOUT_MINUTES = (
+    SMC_PENDING_TIMEOUT_MINUTES
 )
 
 
 # =========================================================
-# TELEGRAM GROUP / CHANNEL
+# SIGNAL
 # =========================================================
 
-SOURCE_GROUP_ID = int(
-    os.getenv(
-        "SOURCE_GROUP_ID",
-        "0"
-    )
+SIGNAL_NAME = env(
+    "SIGNAL_NAME",
+    "XAU AI INTELLIGENCE",
+)
+
+
+MAX_SIGNAL_PER_DAY = env_int(
+    "MAX_SIGNAL_PER_DAY",
+    20,
+)
+
+
+MAX_SIGNAL_HISTORY = env_int(
+    "MAX_SIGNAL_HISTORY",
+    100,
 )
 
 
@@ -260,27 +342,20 @@ SOURCE_GROUP_ID = int(
 # GOOGLE SHEET
 # =========================================================
 
-SPREADSHEET_ID = os.getenv(
+SPREADSHEET_ID = env(
     "SPREADSHEET_ID",
-    ""
 )
 
 
-# =========================================================
-# GOOGLE SHEET CONFIG
-# =========================================================
-
-# Nama sheet bisa diubah dari .env
-# tanpa perlu mengubah source code.
-
-DATA_SHEET_NAME = os.getenv(
+DATA_SHEET_NAME = env(
     "DATA_SHEET_NAME",
-    "data"
+    "data",
 )
 
-TRIAL_SHEET_NAME = os.getenv(
+
+TRIAL_SHEET_NAME = env(
     "TRIAL_SHEET_NAME",
-    "TRIAL"
+    "TRIAL",
 )
 
 
@@ -288,9 +363,8 @@ TRIAL_SHEET_NAME = os.getenv(
 # ADMIN
 # =========================================================
 
-ADMIN_USERNAME = os.getenv(
+ADMIN_USERNAME = env(
     "ADMIN_USERNAME",
-    ""
 )
 
 
@@ -298,19 +372,8 @@ ADMIN_USERNAME = os.getenv(
 # RENEW SYSTEM
 # =========================================================
 
-RENEW_BOT = os.getenv(
+RENEW_BOT = env(
     "RENEW_BOT",
-    ""
-)
-
-
-# =========================================================
-# TIMEZONE
-# =========================================================
-
-TIMEZONE = os.getenv(
-    "SIGNAL_TIMEZONE",
-    "Asia/Jakarta"
 )
 
 
@@ -318,30 +381,28 @@ TIMEZONE = os.getenv(
 # WEBSITE API
 # =========================================================
 
-WEBSITE_URL = os.getenv(
+WEBSITE_URL = env(
     "WEBSITE_URL",
-    ""
 )
 
 
-API_KEY = os.getenv(
+API_KEY = env(
     "API_KEY",
-    ""
 )
 
 
 # =========================================================
-# SIGNAL SETTINGS
+# SOURCE GROUP
 # =========================================================
 
-SIGNAL_NAME = os.getenv(
-    "SIGNAL_NAME",
-    "XAU AI INTELLIGENCE"
+SOURCE_GROUP_ID = env_int(
+    "SOURCE_GROUP_ID",
+    0,
 )
 
 
 # =========================================================
-# SESSION
+# MARKET SESSION
 # =========================================================
 
 SESSIONS = [
@@ -354,12 +415,11 @@ SESSIONS = [
         ),
 
         "note": (
-            "pergerakan cenderung lebih tenang "
+            "Pergerakan cenderung lebih tenang "
             "dan choppy, sehingga konfirmasi "
-            "struktur perlu lebih ketat"
+            "struktur perlu lebih ketat."
         ),
     },
-
 
     {
         "name": "London",
@@ -369,12 +429,11 @@ SESSIONS = [
         ),
 
         "note": (
-            "likuiditas mulai meningkat dan "
+            "Likuiditas mulai meningkat dan "
             "breakout struktur lebih sering "
-            "terjadi pada XAUUSD"
+            "terjadi pada XAUUSD."
         ),
     },
-
 
     {
         "name": "New York",
@@ -385,9 +444,9 @@ SESSIONS = [
         ),
 
         "note": (
-            "likuiditas dan volatilitas biasanya "
+            "Likuiditas dan volatilitas biasanya "
             "tinggi, sehingga perlu waspada "
-            "spike dan berita fundamental"
+            "spike dan berita fundamental."
         ),
     },
 
@@ -398,8 +457,7 @@ SESSIONS = [
 # MARKET SESSION SCHEDULE
 # =========================================================
 
-# Jam utama:
-# Senin - Jumat
+# Senin-Jumat
 # 07:00 - 23:00 WIB
 
 ACTIVE_HOURS_MAIN = list(
@@ -407,8 +465,7 @@ ACTIVE_HOURS_MAIN = list(
 )
 
 
-# Jam extended:
-# Selasa - Sabtu
+# Selasa-Sabtu
 # 00:00 - 02:00 WIB
 
 ACTIVE_HOURS_EXTENDED = [
@@ -417,8 +474,6 @@ ACTIVE_HOURS_EXTENDED = [
     2,
 ]
 
-
-# APScheduler cron
 
 DOW_MAIN = (
     "mon,tue,wed,thu,fri"
@@ -431,24 +486,29 @@ DOW_EXTENDED = (
 
 
 # =========================================================
+# TRADING SESSION
+# =========================================================
+
+START_DAY = 0
+
+END_DAY = 5
+
+
+# =========================================================
 # MESSAGE
 # =========================================================
 
-MAX_MESSAGE_WIDTH = int(
-    os.getenv(
-        "MAX_MESSAGE_WIDTH",
-        "34"
-    )
+MAX_MESSAGE_WIDTH = env_int(
+    "MAX_MESSAGE_WIDTH",
+    34,
 )
 
 
-# =========================================================
-# LOGGING
-# =========================================================
+TELEGRAM_PARSE_MODE = "HTML"
 
-LOG_LEVEL = os.getenv(
-    "LOG_LEVEL",
-    "INFO"
+
+SIGNAL_SEPARATOR = (
+    "━━━━━━━━━━━━━━"
 )
 
 
@@ -456,11 +516,9 @@ LOG_LEVEL = os.getenv(
 # TRIAL SYSTEM
 # =========================================================
 
-TRIAL_MINUTES = int(
-    os.getenv(
-        "TRIAL_MINUTES",
-        "30"
-    )
+TRIAL_MINUTES = env_int(
+    "TRIAL_MINUTES",
+    30,
 )
 
 
@@ -468,23 +526,9 @@ TRIAL_MINUTES = int(
 # KICK / EXPIRE
 # =========================================================
 
-KICK_DELAY_MINUTES = int(
-    os.getenv(
-        "KICK_DELAY_MINUTES",
-        "2"
-    )
-)
-
-
-# =========================================================
-# SIGNAL HISTORY
-# =========================================================
-
-MAX_SIGNAL_HISTORY = int(
-    os.getenv(
-        "MAX_SIGNAL_HISTORY",
-        "100"
-    )
+KICK_DELAY_MINUTES = env_int(
+    "KICK_DELAY_MINUTES",
+    2,
 )
 
 
@@ -492,11 +536,175 @@ MAX_SIGNAL_HISTORY = int(
 # DEBUG
 # =========================================================
 
-DEBUG_SMC = os.getenv(
+DEBUG_SMC = env_bool(
     "DEBUG_SMC",
-    "false"
-).lower() in (
-    "1",
-    "true",
-    "yes"
+    False,
 )
+
+
+# =========================================================
+# VALIDATION
+# =========================================================
+
+def validate_settings():
+    """
+    Validasi konfigurasi penting.
+
+    Tidak membuat bot crash hanya karena
+    credential belum ada, tetapi memberikan
+    daftar warning yang jelas.
+    """
+
+    warnings = []
+
+    if not BOT_TOKEN:
+
+        warnings.append(
+            "BOT_TOKEN belum diisi."
+        )
+
+    if not TWELVEDATA_API_KEY:
+
+        warnings.append(
+            "TWELVE_TOKEN belum diisi."
+        )
+
+    if not SPREADSHEET_ID:
+
+        warnings.append(
+            "SPREADSHEET_ID belum diisi."
+        )
+
+    if not WEBSITE_URL:
+
+        warnings.append(
+            "WEBSITE_URL belum diisi."
+        )
+
+    if not API_KEY:
+
+        warnings.append(
+            "API_KEY belum diisi."
+        )
+
+    return warnings
+
+
+# =========================================================
+# CONFIG DEBUG
+# =========================================================
+
+if __name__ == "__main__":
+
+    print(
+        "=========================================="
+    )
+
+    print(
+        "XAU AI SIGNAL BOT - SETTINGS"
+    )
+
+    print(
+        "=========================================="
+    )
+
+    print(
+        "TIMEZONE:",
+        TIMEZONE,
+    )
+
+    print(
+        "SYMBOL:",
+        SYMBOL,
+    )
+
+    print(
+        "SMC STRUCTURE:",
+        SMC_TF_STRUCTURE,
+    )
+
+    print(
+        "SMC ENTRY:",
+        SMC_TF_ENTRY,
+    )
+
+    print(
+        "SMC STRUCTURE CANDLES:",
+        SMC_CANDLES_FOR_STRUCTURE,
+    )
+
+    print(
+        "SMC LOOKBACK:",
+        SMC_CANDLES_LOOKBACK,
+    )
+
+    print(
+        "SMC ENTRY LOOKBACK:",
+        SMC_CANDLES_ENTRY_LOOKBACK,
+    )
+
+    print(
+        "SL:",
+        SMC_SL_PIPS,
+        "pip =",
+        SMC_SL_DISTANCE,
+    )
+
+    print(
+        "TP1:",
+        SMC_TP1_PIPS,
+        "pip =",
+        SMC_TP1_DISTANCE,
+    )
+
+    print(
+        "TP2:",
+        SMC_TP2_PIPS,
+        "pip =",
+        SMC_TP2_DISTANCE,
+    )
+
+    print(
+        "PENDING TIMEOUT:",
+        SMC_PENDING_TIMEOUT_MINUTES,
+        "minutes",
+    )
+
+    print(
+        "TWELVE DATA KEY:",
+        "SET"
+        if TWELVEDATA_API_KEY
+        else "NOT SET",
+    )
+
+    print(
+        "BOT TOKEN:",
+        "SET"
+        if BOT_TOKEN
+        else "NOT SET",
+    )
+
+    print(
+        "=========================================="
+    )
+
+    warnings = validate_settings()
+
+    if warnings:
+
+        print(
+            "CONFIG WARNINGS:"
+        )
+
+        for warning in warnings:
+
+            print(
+                "-",
+                warning,
+            )
+
+    else:
+
+        print(
+            "CONFIG OK"
+        )
