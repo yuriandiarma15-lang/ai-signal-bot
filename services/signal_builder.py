@@ -71,7 +71,7 @@ from .smc_analyzer import (
     SMCResult,
 )
 from .smc_analyzer import analyze, SMCResult
-from entry_reason_bank import (
+from .entry_reason_bank import (
     get_entry_reason,
     get_session_extra_note,
 )
