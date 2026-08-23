@@ -1,618 +1,457 @@
 """
-Wrapper sederhana untuk endpoint Twelve Data time_series.
+ENTRY REASON BANK
+=================
 
-Dokumentasi:
-https://twelvedata.com/docs#time-series
+Bank alasan entry berbasis SMC.
 
-Free plan Twelve Data:
-800 credit/hari, 8 credit/menit.
+Digunakan oleh:
 
-Bot ini membutuhkan sekitar:
-- 1 credit untuk M5
-- 1 credit untuk M1
-per signal.
+    services.signal_builder
 
-Ditambahkan retry + backoff untuk menghadapi rate limit.
+Function utama:
 
-Perbaikan penting:
-- Semua Candle.time dibuat timezone-aware.
-- Jika Twelve Data mengembalikan datetime tanpa timezone,
-  otomatis dianggap berada pada TIMEZONE dari config.py.
-- Jika Twelve Data mengembalikan datetime dengan timezone,
-  otomatis dikonversi ke TIMEZONE dari config.py.
+    get_entry_reason()
+    get_session_extra_note()
+
+Tujuan:
+- membuat alasan signal lebih natural
+- tidak mengulang kalimat yang sama terus-menerus
+- menyesuaikan bias
+- menyesuaikan zona
+- menyesuaikan pending / market
+- menyesuaikan fill status
 """
 
-import logging
-import time
-import requests
-
-from dataclasses import dataclass
-from datetime import datetime
-from typing import List
-from zoneinfo import ZoneInfo
-
-from config import (
-    TWELVEDATA_API_KEY,
-    SYMBOL,
-    TIMEZONE,
-)
+import random
+from typing import Optional
 
 
 # =========================================================
-# LOGGING
+# BULLISH REASONS
 # =========================================================
 
-logger = logging.getLogger(__name__)
+BULLISH_OB_PENDING = [
+
+    "Struktur bullish mendukung retracement menuju Order Block demand.",
+
+    "Harga masih berada di atas struktur demand dan OB bullish menjadi area mitigasi potensial.",
+
+    "Order Block bullish berada di bawah harga dan masih relatif fresh untuk retest.",
+
+    "Zona demand teridentifikasi sebagai area potensial untuk continuation bullish.",
+
+    "Harga berpotensi melakukan retracement sebelum melanjutkan struktur naik.",
+
+    "OB bullish menjadi area menarik untuk menunggu pullback yang lebih terukur.",
+
+]
+
+
+BULLISH_FVG_PENDING = [
+
+    "Bullish Fair Value Gap berada di bawah harga dan berpotensi menjadi area imbalance yang diretest.",
+
+    "Imbalance bullish masih relatif fresh dan dapat menjadi area retracement.",
+
+    "FVG bullish memberikan area entry retracement dengan struktur yang masih mendukung buyer.",
+
+    "Harga berpotensi mengisi kembali imbalance sebelum melanjutkan pergerakan bullish.",
+
+    "Bullish FVG menjadi area potensial untuk menunggu re-entry buyer.",
+
+]
+
+
+BULLISH_MARKET = [
+
+    "Buyer menunjukkan rejection di sekitar area demand sehingga entry market mulai mendapatkan konfirmasi.",
+
+    "Rejection bullish pada M1 mendukung kemungkinan continuation dari zona demand.",
+
+    "Harga telah melakukan retest zona dan buyer mulai menunjukkan respons.",
+
+    "Konfirmasi M1 menunjukkan seller gagal mempertahankan tekanan di area demand.",
+
+    "Reaksi bullish setelah retest memberikan konfirmasi tambahan untuk entry.",
+
+    "Buyer kembali aktif setelah harga memasuki area SMC.",
+
+]
+
+
+BULLISH_PARTIAL = [
+
+    "FVG bullish baru terisi sebagian sehingga retracement masih berpotensi berlanjut.",
+
+    "Imbalance belum sepenuhnya termitigasi sehingga entry agresif belum disarankan.",
+
+    "Partial fill menunjukkan harga sudah memasuki FVG namun belum memberikan konfirmasi penuh.",
+
+    "Zona masih membutuhkan validasi tambahan sebelum entry market.",
+
+]
 
 
 # =========================================================
-# TWELVE DATA API
+# BEARISH REASONS
 # =========================================================
 
-BASE_URL = (
-    "https://api.twelvedata.com/time_series"
-)
+BEARISH_OB_PENDING = [
 
-USAGE_URL = (
-    "https://api.twelvedata.com/api_usage"
-)
+    "Struktur bearish mendukung retracement menuju Order Block supply.",
+
+    "Harga masih berada di bawah struktur supply dan OB bearish menjadi area mitigasi potensial.",
+
+    "Order Block bearish berada di atas harga dan masih relatif fresh untuk retest.",
+
+    "Zona supply teridentifikasi sebagai area potensial untuk continuation bearish.",
+
+    "Harga berpotensi melakukan retracement sebelum melanjutkan struktur turun.",
+
+    "OB bearish menjadi area menarik untuk menunggu pullback yang lebih terukur.",
+
+]
+
+
+BEARISH_FVG_PENDING = [
+
+    "Bearish Fair Value Gap berada di atas harga dan berpotensi menjadi area imbalance yang diretest.",
+
+    "Imbalance bearish masih relatif fresh dan dapat menjadi area retracement.",
+
+    "FVG bearish memberikan area entry retracement dengan struktur yang masih mendukung seller.",
+
+    "Harga berpotensi mengisi kembali imbalance sebelum melanjutkan pergerakan bearish.",
+
+    "Bearish FVG menjadi area potensial untuk menunggu re-entry seller.",
+
+]
+
+
+BEARISH_MARKET = [
+
+    "Seller menunjukkan rejection di sekitar area supply sehingga entry market mulai mendapatkan konfirmasi.",
+
+    "Rejection bearish pada M1 mendukung kemungkinan continuation dari zona supply.",
+
+    "Harga telah melakukan retest zona dan seller mulai menunjukkan respons.",
+
+    "Konfirmasi M1 menunjukkan buyer gagal mempertahankan tekanan di area supply.",
+
+    "Reaksi bearish setelah retest memberikan konfirmasi tambahan untuk entry.",
+
+    "Seller kembali aktif setelah harga memasuki area SMC.",
+
+]
+
+
+BEARISH_PARTIAL = [
+
+    "FVG bearish baru terisi sebagian sehingga retracement masih berpotensi berlanjut.",
+
+    "Imbalance belum sepenuhnya termitigasi sehingga entry agresif belum disarankan.",
+
+    "Partial fill menunjukkan harga sudah memasuki FVG namun belum memberikan konfirmasi penuh.",
+
+    "Zona masih membutuhkan validasi tambahan sebelum entry market.",
+
+]
 
 
 # =========================================================
-# RETRY CONFIG
+# GENERAL
 # =========================================================
 
-MAX_RETRIES = 3
+GENERAL_REASONS = [
 
-RETRY_BACKOFF_SECONDS = 20
+    "Analisa mempertimbangkan struktur M5 dan timing entry M1.",
+
+    "Setup dipilih berdasarkan konfluensi struktur dan zona SMC.",
+
+    "Entry tidak hanya mengandalkan arah harga, tetapi juga posisi terhadap zona.",
+
+    "Harga masih berada dalam radius zona yang diperbolehkan oleh sistem.",
+
+    "Setup mempertimbangkan hubungan antara struktur, liquidity dan area imbalance.",
+
+    "Risk management tetap menjadi bagian utama validasi setup.",
+
+]
 
 
 # =========================================================
-# TIMEZONE
+# SESSION NOTES
 # =========================================================
 
-try:
+SESSION_NOTES = {
 
-    DATA_TIMEZONE = ZoneInfo(
-        TIMEZONE
+    "Asian Session": [
+
+        "Sesi Asia cenderung membentuk range yang dapat menjadi referensi liquidity untuk sesi berikutnya.",
+
+        "Perhatikan high dan low sesi Asia karena area tersebut sering menjadi target liquidity.",
+
+        "Volatilitas dapat lebih rendah sehingga hindari mengejar pergerakan harga.",
+
+        "Gunakan struktur dan zona sebagai acuan utama, bukan sekadar momentum candle.",
+
+    ],
+
+    "London Session": [
+
+        "Pembukaan London dapat meningkatkan volatilitas dan memicu liquidity sweep.",
+
+        "Perhatikan kemungkinan false breakout sebelum displacement yang lebih jelas.",
+
+        "London sering menjadi fase penting untuk validasi BOS atau CHoCH.",
+
+        "Jika liquidity Asia tersapu, tunggu reaksi harga sebelum mengambil keputusan.",
+
+    ],
+
+    "New York Session": [
+
+        "Volatilitas XAUUSD dapat meningkat ketika likuiditas New York masuk.",
+
+        "Perhatikan displacement dan kemungkinan liquidity sweep di sekitar high/low sebelumnya.",
+
+        "News Amerika dapat meningkatkan volatilitas sehingga ukuran risiko perlu tetap terkontrol.",
+
+        "Konfirmasi M1 menjadi semakin penting ketika range bergerak cepat.",
+
+    ],
+
+    "New York Late": [
+
+        "Pasar mulai memasuki fase akhir sesi New York sehingga continuation perlu dikonfirmasi.",
+
+        "Waspadai exhaustion setelah pergerakan besar.",
+
+        "Retracement dapat lebih dominan setelah volatility spike.",
+
+        "Hindari mengejar harga jika sudah terlalu jauh dari zona SMC.",
+
+    ],
+
+}
+
+
+# =========================================================
+# DETERMINISTIC RANDOM
+# =========================================================
+
+def _choose(
+    items,
+    seed: Optional[str] = None,
+) -> str:
+
+    if not items:
+
+        return ""
+
+    if seed:
+
+        rng = random.Random(
+            str(seed)
+        )
+
+        return rng.choice(
+            items
+        )
+
+    return random.choice(
+        items
     )
 
-except Exception:
-
-    logger.exception(
-        "TIMEZONE tidak valid: %s",
-        TIMEZONE,
-    )
-
-    raise
-
 
 # =========================================================
-# CANDLE
+# GET ENTRY REASON
 # =========================================================
 
-@dataclass
-class Candle:
-
-    time: datetime
-
-    open: float
-
-    high: float
-
-    low: float
-
-    close: float
-
-    @property
-    def is_bullish(self) -> bool:
-
-        return (
-            self.close
-            > self.open
-        )
-
-    @property
-    def is_bearish(self) -> bool:
-
-        return (
-            self.close
-            < self.open
-        )
-
-    @property
-    def body(self) -> float:
-
-        return abs(
-            self.close
-            - self.open
-        )
-
-    @property
-    def range(self) -> float:
-
-        return (
-            self.high
-            - self.low
-        )
-
-
-# =========================================================
-# ERROR
-# =========================================================
-
-class TwelveDataError(Exception):
-
-    pass
-
-
-# =========================================================
-# DATETIME PARSER
-# =========================================================
-
-def _parse_candle_datetime(
-    value: str,
-) -> datetime:
+def get_entry_reason(
+    bias: str,
+    zone_type: Optional[str],
+    is_pending: bool,
+    fill_status: str,
+    seed: Optional[str] = None,
+) -> str:
     """
-    Parse datetime dari Twelve Data dan memastikan hasilnya
-    selalu timezone-aware.
-
-    Kasus 1:
-        Twelve Data mengembalikan datetime tanpa timezone.
-
-        Contoh:
-            2026-08-21 04:10:00
-
-        Maka datetime dianggap berada pada TIMEZONE config.
-
-    Kasus 2:
-        Twelve Data mengembalikan datetime dengan timezone.
-
-        Maka datetime dikonversi ke TIMEZONE config.
-
-    Return:
-        datetime timezone-aware.
-    """
-
-    if not value:
-
-        raise TwelveDataError(
-            "Datetime candle kosong dari Twelve Data."
-        )
-
-    try:
-
-        candle_time = (
-            datetime.fromisoformat(
-                value
-            )
-        )
-
-    except ValueError as exc:
-
-        raise TwelveDataError(
-            f"Format datetime candle tidak valid: {value}"
-        ) from exc
-
-    # -----------------------------------------------------
-    # NAIVE DATETIME
-    # -----------------------------------------------------
-
-    if candle_time.tzinfo is None:
-
-        candle_time = (
-            candle_time.replace(
-                tzinfo=DATA_TIMEZONE
-            )
-        )
-
-    # -----------------------------------------------------
-    # AWARE DATETIME
-    # -----------------------------------------------------
-
-    else:
-
-        candle_time = (
-            candle_time.astimezone(
-                DATA_TIMEZONE
-            )
-        )
-
-    return candle_time
-
-
-# =========================================================
-# FETCH CANDLES
-# =========================================================
-
-def fetch_candles(
-    interval: str,
-    outputsize: int,
-) -> List[Candle]:
-    """
-    Ambil candle terakhir untuk SYMBOL.
+    Menghasilkan alasan entry berdasarkan kondisi SMC.
 
     Parameter:
 
-        interval:
-            Contoh:
-                "1min"
-                "5min"
+        bias:
+            bullish / bearish
 
-        outputsize:
-            Jumlah candle yang diminta.
+        zone_type:
+            Order Block / Fair Value Gap
 
-    Return:
+        is_pending:
+            True jika Buy Limit / Sell Limit
 
-        List[Candle]
+        fill_status:
+            untouched / partial / full
 
-    Candle dikembalikan terurut:
-
-        LAMA -> BARU
-
-    sehingga:
-
-        candles[-1]
-
-    adalah candle paling baru.
-
-    Semua Candle.time dijamin timezone-aware
-    menggunakan TIMEZONE dari config.py.
+        seed:
+            membuat hasil konsisten untuk signal yang sama.
     """
 
-    if outputsize <= 0:
+    bias = (
+        bias or ""
+    ).lower()
 
-        raise ValueError(
-            "outputsize harus lebih besar dari 0."
-        )
+    zone_type = (
+        zone_type or ""
+    ).lower()
 
-    params = {
+    fill_status = (
+        fill_status or "untouched"
+    ).lower()
 
-        "symbol": SYMBOL,
-
-        "interval": interval,
-
-        "outputsize": outputsize,
-
-        "apikey": TWELVEDATA_API_KEY,
-
-        "timezone": TIMEZONE,
-
-        "order": "ASC",
-    }
-
-    data = None
 
     # =====================================================
-    # REQUEST + RETRY
+    # PARTIAL FVG
     # =====================================================
-
-    for attempt in range(
-        1,
-        MAX_RETRIES + 1,
-    ):
-
-        try:
-
-            response = requests.get(
-
-                BASE_URL,
-
-                params=params,
-
-                timeout=15,
-            )
-
-            credits_left = (
-                response.headers.get(
-                    "api-credits-left"
-                )
-            )
-
-            if credits_left is not None:
-
-                logger.info(
-                    "Twelve Data credit tersisa: %s",
-                    credits_left,
-                )
-
-                if (
-                    credits_left.isdigit()
-                    and int(credits_left) < 50
-                ):
-
-                    logger.warning(
-                        "Sisa credit Twelve Data "
-                        "tinggal %s — mendekati "
-                        "limit harian!",
-                        credits_left,
-                    )
-
-            # -------------------------------------------------
-            # JSON
-            # -------------------------------------------------
-
-            data = response.json()
-
-            # -------------------------------------------------
-            # RATE LIMIT
-            # -------------------------------------------------
-
-            is_rate_limited = (
-
-                response.status_code == 429
-
-                or
-
-                data.get("code") == 429
-            )
-
-            if is_rate_limited:
-
-                logger.warning(
-
-                    "Kena rate limit Twelve Data "
-                    "(percobaan %s/%s), "
-                    "tunggu %ss...",
-
-                    attempt,
-
-                    MAX_RETRIES,
-
-                    RETRY_BACKOFF_SECONDS,
-                )
-
-                if attempt < MAX_RETRIES:
-
-                    time.sleep(
-                        RETRY_BACKOFF_SECONDS
-                    )
-
-                    continue
-
-            break
-
-        except requests.RequestException:
-
-            logger.exception(
-
-                "Request Twelve Data gagal "
-                "(percobaan %s/%s)",
-
-                attempt,
-
-                MAX_RETRIES,
-            )
-
-            if attempt < MAX_RETRIES:
-
-                time.sleep(
-                    RETRY_BACKOFF_SECONDS
-                )
-
-                continue
-
-            raise TwelveDataError(
-                "Gagal menghubungi Twelve Data "
-                "setelah beberapa percobaan."
-            )
-
-        except ValueError:
-
-            logger.exception(
-                "Response Twelve Data "
-                "bukan JSON yang valid."
-            )
-
-            raise TwelveDataError(
-                "Response Twelve Data tidak valid."
-            )
-
-    # =====================================================
-    # VALIDASI RESPONSE
-    # =====================================================
-
-    if not data:
-
-        raise TwelveDataError(
-            "Tidak ada response dari Twelve Data."
-        )
 
     if (
-        data.get("status") == "error"
-        or "values" not in data
+        "fair value gap" in zone_type
+        and fill_status == "partial"
     ):
 
-        msg = data.get(
-            "message",
-            "Unknown error dari Twelve Data",
-        )
+        if bias == "bullish":
 
-        logger.error(
-            "Twelve Data error: %s",
-            msg,
-        )
+            return _choose(
+                BULLISH_PARTIAL,
+                seed,
+            )
 
-        raise TwelveDataError(
-            msg
-        )
+        if bias == "bearish":
 
-    values = data.get(
-        "values",
+            return _choose(
+                BEARISH_PARTIAL,
+                seed,
+            )
+
+
+    # =====================================================
+    # MARKET
+    # =====================================================
+
+    if not is_pending:
+
+        if bias == "bullish":
+
+            return _choose(
+                BULLISH_MARKET,
+                seed,
+            )
+
+        if bias == "bearish":
+
+            return _choose(
+                BEARISH_MARKET,
+                seed,
+            )
+
+
+    # =====================================================
+    # PENDING ORDER BLOCK
+    # =====================================================
+
+    if (
+        is_pending
+        and "order block" in zone_type
+    ):
+
+        if bias == "bullish":
+
+            return _choose(
+                BULLISH_OB_PENDING,
+                seed,
+            )
+
+        if bias == "bearish":
+
+            return _choose(
+                BEARISH_OB_PENDING,
+                seed,
+            )
+
+
+    # =====================================================
+    # PENDING FVG
+    # =====================================================
+
+    if (
+        is_pending
+        and "fair value gap" in zone_type
+    ):
+
+        if bias == "bullish":
+
+            return _choose(
+                BULLISH_FVG_PENDING,
+                seed,
+            )
+
+        if bias == "bearish":
+
+            return _choose(
+                BEARISH_FVG_PENDING,
+                seed,
+            )
+
+
+    # =====================================================
+    # FALLBACK
+    # =====================================================
+
+    return _choose(
+        GENERAL_REASONS,
+        seed,
+    )
+
+
+# =========================================================
+# SESSION EXTRA NOTE
+# =========================================================
+
+def get_session_extra_note(
+    session_name: str,
+    seed: Optional[str] = None,
+) -> str:
+
+    notes = SESSION_NOTES.get(
+        session_name,
         [],
     )
 
-    if not values:
+    if not notes:
 
-        raise TwelveDataError(
-            "Twelve Data tidak mengembalikan candle."
-        )
+        return ""
 
-    # =====================================================
-    # PARSE CANDLES
-    # =====================================================
-
-    candles = []
-
-    for row in values:
-
-        try:
-
-            candle_time = (
-                _parse_candle_datetime(
-                    row["datetime"]
-                )
-            )
-
-            candle = Candle(
-
-                time=candle_time,
-
-                open=float(
-                    row["open"]
-                ),
-
-                high=float(
-                    row["high"]
-                ),
-
-                low=float(
-                    row["low"]
-                ),
-
-                close=float(
-                    row["close"]
-                ),
-            )
-
-            candles.append(
-                candle
-            )
-
-        except KeyError as exc:
-
-            logger.exception(
-                "Data candle Twelve Data "
-                "tidak lengkap: %s",
-                row,
-            )
-
-            raise TwelveDataError(
-                f"Field candle tidak lengkap: {exc}"
-            ) from exc
-
-        except (TypeError, ValueError) as exc:
-
-            logger.exception(
-                "Data candle Twelve Data "
-                "tidak valid: %s",
-                row,
-            )
-
-            raise TwelveDataError(
-                f"Data candle tidak valid: {row}"
-            ) from exc
-
-    if not candles:
-
-        raise TwelveDataError(
-            "Tidak ada candle valid "
-            "setelah parsing."
-        )
-
-    # =====================================================
-    # SORT
-    # =====================================================
-
-    candles.sort(
-        key=lambda c: c.time
+    return _choose(
+        notes,
+        seed,
     )
 
-    # =====================================================
-    # LOG
-    # =====================================================
 
-    logger.debug(
+# =========================================================
+# COMPATIBILITY
+# =========================================================
 
-        "Berhasil mengambil %s candle %s "
-        "untuk %s",
+def get_reason(
+    bias: str,
+    zone_type: Optional[str] = None,
+    is_pending: bool = False,
+    fill_status: str = "untouched",
+    seed: Optional[str] = None,
+) -> str:
 
-        len(candles),
-
-        interval,
-
-        SYMBOL,
+    return get_entry_reason(
+        bias=bias,
+        zone_type=zone_type,
+        is_pending=is_pending,
+        fill_status=fill_status,
+        seed=seed,
     )
-
-    return candles
-
-
-# =========================================================
-# CHECK REMAINING QUOTA
-# =========================================================
-
-def check_remaining_quota() -> dict:
-    """
-    Cek sisa credit Twelve Data.
-
-    Catatan:
-    Endpoint /api_usage dapat menggunakan credit,
-    jadi jangan dipanggil pada setiap signal.
-
-    Gunakan hanya untuk pengecekan manual.
-    """
-
-    try:
-
-        response = requests.get(
-
-            USAGE_URL,
-
-            params={
-                "apikey":
-                    TWELVEDATA_API_KEY
-            },
-
-            timeout=15,
-        )
-
-        response.raise_for_status()
-
-        return response.json()
-
-    except requests.RequestException as exc:
-
-        logger.exception(
-            "Gagal mengecek quota Twelve Data."
-        )
-
-        raise TwelveDataError(
-            "Gagal mengecek quota Twelve Data."
-        ) from exc
-
-
-# =========================================================
-# CURRENT PRICE
-# =========================================================
-
-def get_current_price() -> float:
-    """
-    Ambil harga close candle M1 paling baru.
-
-    Digunakan sebagai referensi harga saat ini.
-    """
-
-    candles = fetch_candles(
-
-        interval="1min",
-
-        outputsize=1,
-    )
-
-    if not candles:
-
-        raise TwelveDataError(
-            "Tidak ada data harga terkini."
-        )
-
-    return candles[-1].close
