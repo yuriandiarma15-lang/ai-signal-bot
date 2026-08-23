@@ -1,68 +1,65 @@
-from datetime import datetime
+"""
+Signal Builder
+==============
 
-import pytz
+Adapter untuk menghubungkan logic SMC utama dari signal_generator.py
+ke sistem bot yang menggunakan services.signal_builder.
 
-from services.market import get_price
-from services.analysis import analyze_market
+Logic trading TIDAK dilakukan di sini.
+
+Semua analisa:
+- M5 SMC
+- BOS
+- CHoCH
+- Order Block
+- FVG
+- Liquidity Sweep
+- M1 entry
+- Market / Pending
+- SL
+- TP1
+- TP2
+- Confidence
+- Reason
+
+berasal dari signal_generator.py.
+"""
+
+from signal_generator import (
+    generate_signal,
+    format_signal_message,
+)
 
 
-WIB = pytz.timezone("Asia/Jakarta")
-
-
-# =====================================
+# =========================================================
 # BUILD SIGNAL
-# =====================================
+# =========================================================
 
-def build_signal():
-    price = get_price()
+def build_signal(
+    structure_candle_count=None,
+):
+    """
+    Generate signal menggunakan engine SMC utama.
 
-    if price is None:
-        return "⚠️ <b>XAUUSD SIGNAL</b>\nHarga tidak tersedia"
+    Scheduler:
+        build_signal()
 
-    analysis = analyze_market()
-    bias = analysis.get("bias", "BUY")
-    confidence = analysis.get("confidence", 50)
-    reasons = analysis.get("reason", [])
+    Manual /signal:
+        build_signal(structure_candle_count=12)
+    """
 
-    entry = price
+    try:
 
-    # ==========================
-    # BUY
-    # ==========================
-    if bias == "BUY":
-        setup = "BUY LIMIT"
-        tp1 = entry + 7
-        tp2 = entry + 15
-        sl = entry - 5
+        signal = generate_signal(
+            structure_candle_count=structure_candle_count
+        )
 
-    # ==========================
-    # SELL
-    # ==========================
-    else:
-        setup = "SELL LIMIT"
-        tp1 = entry - 7
-        tp2 = entry - 15
-        sl = entry + 5
+        return format_signal_message(signal)
 
-    reason_text = "\n".join(f"- {x}" for x in reasons)
+    except Exception as e:
 
-    now = datetime.now(WIB).strftime(
-        "%d-%m-%Y %H:%M WIB"
-    )
-
-    message = (
-        f"📊 <b>XAUUSD SIGNAL</b>\n"
-        f"🕒 {now}\n"
-        f"━━━━━━━━━━━━━━\n"
-        f"📈 <b>BIAS:</b> {bias}\n"
-        f"📌 <b>ENTRY:</b> {setup} @ {entry:.2f}\n"
-        f"🎯 <b>TP1:</b> {tp1:.2f}\n"
-        f"🎯 <b>TP2:</b> {tp2:.2f}\n"
-        f"⛔ <b>SL:</b> {sl:.2f}\n"
-        f"🔥 <b>CONFIDENCE:</b> {confidence}%\n"
-        f"🧠 <b>REASON:</b>\n{reason_text}\n"
-        f"━━━━━━━━━━━━━━\n"
-        f"🤖 <b>XAU AI ASSISTANT</b>"
-    )
-
-    return message
+        return (
+            "⚠️ *XAU AI SIGNAL*\n\n"
+            "Signal tidak dapat dibuat.\n\n"
+            f"Error: `{str(e)}`"
+        )
