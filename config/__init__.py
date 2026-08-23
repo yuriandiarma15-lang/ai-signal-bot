@@ -1,5 +1,16 @@
 """
-Config package untuk XAU AI Signal Bot.
+CONFIG PACKAGE
+
+Menyatukan settings.py dan constants.py
+agar module lama maupun module baru
+bisa menggunakan:
+
+from config import ...
+
+atau:
+
+from config.settings import ...
+from config.constants import ...
 """
 
 # =========================================================
@@ -62,7 +73,6 @@ from .constants import (
 
     SIGNAL_PREFIX,
 
-    # Signal status
     SIGNAL_ACTIVE,
     SIGNAL_PENDING,
     SIGNAL_TRIGGERED,
@@ -72,204 +82,88 @@ from .constants import (
     SIGNAL_CANCELLED,
     SIGNAL_EXPIRED,
 
-    # Entry type
     ENTRY_MARKET,
     ENTRY_BUY_LIMIT,
     ENTRY_SELL_LIMIT,
     ENTRY_BUY_STOP,
     ENTRY_SELL_STOP,
 
-    # SMC zone
     ZONE_ORDER_BLOCK,
     ZONE_FVG,
     ZONE_LIQUIDITY,
 
-    # SMC bias
     BIAS_BULLISH,
     BIAS_BEARISH,
     BIAS_NEUTRAL,
 
-    # FVG
     FILL_UNTOUCHED,
     FILL_PARTIAL,
     FILL_FULL,
 
-    # Pending
     MAX_PENDING_SIGNALS,
     PENDING_SIGNAL_CHECK_INTERVAL,
 
-    # Telegram
     TELEGRAM_PARSE_MODE,
 
-    # Format
     SIGNAL_SEPARATOR,
     MAX_MESSAGE_WIDTH,
 )
 
 
 # =========================================================
-# EXPORT
+# BACKWARD COMPATIBILITY
+# =========================================================
+#
+# Ini penting karena beberapa file lama kamu masih
+# menggunakan nama konfigurasi versi lama.
+#
+# Jadi kita tidak perlu langsung mengubah semua file.
 # =========================================================
 
-__all__ = [
+CANDLES_FOR_STRUCTURE = SMC_CANDLES_FOR_STRUCTURE
 
-    # =====================================================
-    # SETTINGS
-    # =====================================================
+CANDLES_LOOKBACK = SMC_CANDLES_LOOKBACK
 
-    "BOT_TOKEN",
-    "TWELVE_TOKEN",
+CANDLES_ENTRY_LOOKBACK = SMC_CANDLES_ENTRY_LOOKBACK
 
-    "SMC_SYMBOL",
+TF_STRUCTURE = SMC_TF_STRUCTURE
 
-    "SMC_TF_STRUCTURE",
-    "SMC_TF_ENTRY",
+TF_ENTRY = SMC_TF_ENTRY
 
-    "SMC_CANDLES_FOR_STRUCTURE",
-    "SMC_CANDLES_LOOKBACK",
-    "SMC_CANDLES_ENTRY_LOOKBACK",
+SL_DISTANCE = SMC_SL_DISTANCE
 
-    # =====================================================
-    # RISK MANAGEMENT
-    # =====================================================
+TP1_DISTANCE = SMC_TP1_DISTANCE
 
-    "SMC_PIP_VALUE",
+TP2_DISTANCE = SMC_TP2_DISTANCE
 
-    "SMC_SL_PIPS",
-    "SMC_TP1_PIPS",
-    "SMC_TP2_PIPS",
+SL_PIPS = SMC_SL_PIPS
 
-    "SMC_SL_DISTANCE",
-    "SMC_TP1_DISTANCE",
-    "SMC_TP2_DISTANCE",
+TP1_PIPS = SMC_TP1_PIPS
 
-    # =====================================================
-    # ENTRY
-    # =====================================================
+TP2_PIPS = SMC_TP2_PIPS
 
-    "SMC_MARKET_ENTRY_TOLERANCE",
-    "SMC_PENDING_TIMEOUT_MINUTES",
+MARKET_ENTRY_TOLERANCE = SMC_MARKET_ENTRY_TOLERANCE
 
-    # =====================================================
-    # TELEGRAM
-    # =====================================================
+PENDING_ORDER_TIMEOUT_MINUTES = SMC_PENDING_TIMEOUT_MINUTES
 
-    "SOURCE_GROUP_ID",
 
-    # =====================================================
-    # GOOGLE SHEET
-    # =====================================================
+# =========================================================
+# SESSION
+# =========================================================
 
-    "SPREADSHEET_ID",
+ACTIVE_HOURS_MAIN = list(range(7, 24))
 
-    # =====================================================
-    # ADMIN
-    # =====================================================
+ACTIVE_HOURS_EXTENDED = [0, 1, 2]
 
-    "ADMIN_USERNAME",
+DOW_MAIN = "mon,tue,wed,thu,fri"
 
-    # =====================================================
-    # RENEW
-    # =====================================================
+DOW_EXTENDED = "tue,wed,thu,fri,sat"
 
-    "RENEW_BOT",
 
-    # =====================================================
-    # TIMEZONE
-    # =====================================================
+# =========================================================
+# MAX ZONE DISTANCE
+# =========================================================
 
-    "TIMEZONE",
-
-    # =====================================================
-    # WEBSITE
-    # =====================================================
-
-    "WEBSITE_URL",
-    "API_KEY",
-
-    # =====================================================
-    # SESSION
-    # =====================================================
-
-    "START_DAY",
-    "END_DAY",
-    "START_TIME",
-    "END_TIME",
-
-    # =====================================================
-    # SIGNAL
-    # =====================================================
-
-    "MAX_SIGNAL_PER_DAY",
-    "SIGNAL_PREFIX",
-
-    # =====================================================
-    # SIGNAL STATUS
-    # =====================================================
-
-    "SIGNAL_ACTIVE",
-    "SIGNAL_PENDING",
-    "SIGNAL_TRIGGERED",
-
-    "SIGNAL_TP1",
-    "SIGNAL_TP2",
-
-    "SIGNAL_SL",
-
-    "SIGNAL_CANCELLED",
-    "SIGNAL_EXPIRED",
-
-    # =====================================================
-    # ENTRY TYPE
-    # =====================================================
-
-    "ENTRY_MARKET",
-    "ENTRY_BUY_LIMIT",
-    "ENTRY_SELL_LIMIT",
-    "ENTRY_BUY_STOP",
-    "ENTRY_SELL_STOP",
-
-    # =====================================================
-    # SMC ZONE
-    # =====================================================
-
-    "ZONE_ORDER_BLOCK",
-    "ZONE_FVG",
-    "ZONE_LIQUIDITY",
-
-    # =====================================================
-    # SMC BIAS
-    # =====================================================
-
-    "BIAS_BULLISH",
-    "BIAS_BEARISH",
-    "BIAS_NEUTRAL",
-
-    # =====================================================
-    # FVG FILL
-    # =====================================================
-
-    "FILL_UNTOUCHED",
-    "FILL_PARTIAL",
-    "FILL_FULL",
-
-    # =====================================================
-    # PENDING
-    # =====================================================
-
-    "MAX_PENDING_SIGNALS",
-    "PENDING_SIGNAL_CHECK_INTERVAL",
-
-    # =====================================================
-    # TELEGRAM FORMAT
-    # =====================================================
-
-    "TELEGRAM_PARSE_MODE",
-
-    # =====================================================
-    # FORMAT
-    # =====================================================
-
-    "SIGNAL_SEPARATOR",
-    "MAX_MESSAGE_WIDTH",
-]
+MAX_ZONE_DISTANCE = float(
+    SMC_SL_DISTANCE * 1.5
+)
