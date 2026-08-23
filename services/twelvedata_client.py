@@ -1,27 +1,3 @@
-"""
-Twelve Data Client
-==================
-
-Wrapper untuk endpoint Twelve Data time_series.
-
-Digunakan oleh:
-    services.signal_builder.py
-
-Data:
-    M1
-    M5
-
-Semua candle:
-    LAMA -> BARU
-
-Semua datetime:
-    timezone-aware sesuai TIMEZONE.
-
-Contoh:
-    Candle.time
-    candles[-1]
-"""
-
 import logging
 import time
 import requests
@@ -31,67 +7,38 @@ from datetime import datetime
 from typing import List
 from zoneinfo import ZoneInfo
 
-from config.settings import (
-    TWELVEDATA_API_KEY,
-    SYMBOL,
+from config import (
+    TWELVE_TOKEN,
+    SMC_SYMBOL,
     TIMEZONE,
 )
 
 
-# =========================================================
-# LOGGING
-# =========================================================
-
-logger = logging.getLogger(
-    "twelvedata_client"
-)
+logger = logging.getLogger(__name__)
 
 
-# =========================================================
-# TWELVE DATA API
-# =========================================================
+BASE_URL = "https://api.twelvedata.com/time_series"
 
-BASE_URL = (
-    "https://api.twelvedata.com/time_series"
-)
+USAGE_URL = "https://api.twelvedata.com/api_usage"
 
-USAGE_URL = (
-    "https://api.twelvedata.com/api_usage"
-)
-
-
-# =========================================================
-# RETRY
-# =========================================================
 
 MAX_RETRIES = 3
 
 RETRY_BACKOFF_SECONDS = 20
 
 
-# =========================================================
-# TIMEZONE
-# =========================================================
-
 try:
+    DATA_TIMEZONE = ZoneInfo(TIMEZONE)
 
-    DATA_TIMEZONE = ZoneInfo(
-        TIMEZONE
-    )
-
-except Exception as exc:
+except Exception:
 
     logger.exception(
         "TIMEZONE tidak valid: %s",
         TIMEZONE,
     )
 
-    raise exc
+    raise
 
-
-# =========================================================
-# CANDLE
-# =========================================================
 
 @dataclass
 class Candle:
@@ -106,96 +53,33 @@ class Candle:
 
     close: float
 
-    # -----------------------------------------------------
-    # BULLISH
-    # -----------------------------------------------------
-
     @property
     def is_bullish(self) -> bool:
 
-        return (
-            self.close
-            > self.open
-        )
-
-    # -----------------------------------------------------
-    # BEARISH
-    # -----------------------------------------------------
+        return self.close > self.open
 
     @property
     def is_bearish(self) -> bool:
 
-        return (
-            self.close
-            < self.open
-        )
-
-    # -----------------------------------------------------
-    # BODY
-    # -----------------------------------------------------
+        return self.close < self.open
 
     @property
     def body(self) -> float:
 
         return abs(
-            self.close
-            - self.open
+            self.close - self.open
         )
-
-    # -----------------------------------------------------
-    # RANGE
-    # -----------------------------------------------------
 
     @property
     def range(self) -> float:
 
-        return (
-            self.high
-            - self.low
-        )
+        return self.high - self.low
 
 
-# =========================================================
-# ERROR
-# =========================================================
+class TwelveDataError(Exception):
 
-class TwelveDataError(
-    Exception
-):
     pass
 
-
-# =========================================================
-# VALIDATE CONFIG
-# =========================================================
-
-def _validate_config():
-
-    if not TWELVEDATA_API_KEY:
-
-        raise TwelveDataError(
-            "TWELVEDATA_API_KEY belum diisi "
-            "di config/settings.py atau environment."
-        )
-
-    if not SYMBOL:
-
-        raise TwelveDataError(
-            "SYMBOL belum diisi "
-            "di config/settings.py."
-        )
-
-    if not TIMEZONE:
-
-        raise TwelveDataError(
-            "TIMEZONE belum diisi "
-            "di config/settings.py."
-        )
-
-
-# =========================================================
-# DATETIME PARSER
-# =========================================================
 
 def _parse_candle_datetime(
     value: str,
@@ -209,75 +93,35 @@ def _parse_candle_datetime(
 
     try:
 
-        candle_time = (
-            datetime.fromisoformat(
-                value
-            )
+        candle_time = datetime.fromisoformat(
+            value
         )
 
     except ValueError as exc:
 
         raise TwelveDataError(
-            "Format datetime candle "
-            f"tidak valid: {value}"
+            f"Format datetime candle tidak valid: {value}"
         ) from exc
-
-    # =====================================================
-    # NAIVE DATETIME
-    # =====================================================
 
     if candle_time.tzinfo is None:
 
-        candle_time = (
-            candle_time.replace(
-                tzinfo=DATA_TIMEZONE
-            )
+        candle_time = candle_time.replace(
+            tzinfo=DATA_TIMEZONE
         )
-
-    # =====================================================
-    # AWARE DATETIME
-    # =====================================================
 
     else:
 
-        candle_time = (
-            candle_time.astimezone(
-                DATA_TIMEZONE
-            )
+        candle_time = candle_time.astimezone(
+            DATA_TIMEZONE
         )
 
     return candle_time
 
 
-# =========================================================
-# FETCH CANDLES
-# =========================================================
-
 def fetch_candles(
     interval: str,
     outputsize: int,
 ) -> List[Candle]:
-
-    """
-    Mengambil candle dari Twelve Data.
-
-    Contoh:
-
-        fetch_candles(
-            interval="5min",
-            outputsize=100
-        )
-
-    Return:
-
-        List[Candle]
-
-    Urutan:
-
-        candle lama -> candle baru
-    """
-
-    _validate_config()
 
     if outputsize <= 0:
 
@@ -285,37 +129,28 @@ def fetch_candles(
             "outputsize harus lebih besar dari 0."
         )
 
-    if not interval:
+    if not TWELVE_TOKEN:
 
-        raise ValueError(
-            "interval tidak boleh kosong."
+        raise TwelveDataError(
+            "TWELVE_TOKEN belum tersedia."
         )
-
-    # =====================================================
-    # PARAMETER
-    # =====================================================
 
     params = {
 
-        "symbol": SYMBOL,
+        "symbol": SMC_SYMBOL,
 
         "interval": interval,
 
         "outputsize": outputsize,
 
-        "apikey": TWELVEDATA_API_KEY,
+        "apikey": TWELVE_TOKEN,
 
         "timezone": TIMEZONE,
 
         "order": "ASC",
-
     }
 
     data = None
-
-    # =====================================================
-    # REQUEST
-    # =====================================================
 
     for attempt in range(
         1,
@@ -324,103 +159,40 @@ def fetch_candles(
 
         try:
 
-            logger.debug(
-                "Request Twelve Data: "
-                "symbol=%s interval=%s "
-                "outputsize=%s attempt=%s/%s",
-                SYMBOL,
-                interval,
-                outputsize,
-                attempt,
-                MAX_RETRIES,
-            )
-
             response = requests.get(
-
                 BASE_URL,
-
                 params=params,
-
                 timeout=15,
             )
 
-            # -------------------------------------------------
-            # CREDIT
-            # -------------------------------------------------
-
-            credits_left = (
-                response.headers.get(
-                    "api-credits-left"
-                )
+            credits_left = response.headers.get(
+                "api-credits-left"
             )
 
-            if credits_left:
+            if credits_left is not None:
 
                 logger.info(
                     "Twelve Data credit tersisa: %s",
                     credits_left,
                 )
 
-                try:
-
-                    if int(
-                        credits_left
-                    ) < 50:
-
-                        logger.warning(
-                            "Credit Twelve Data "
-                            "tinggal %s.",
-                            credits_left,
-                        )
-
-                except ValueError:
-
-                    pass
-
-            # -------------------------------------------------
-            # JSON
-            # -------------------------------------------------
-
-            try:
-
-                data = response.json()
-
-            except ValueError as exc:
-
-                raise TwelveDataError(
-                    "Response Twelve Data "
-                    "bukan JSON valid."
-                ) from exc
-
-            # -------------------------------------------------
-            # RATE LIMIT
-            # -------------------------------------------------
+            data = response.json()
 
             is_rate_limited = (
-
                 response.status_code == 429
-
-                or
-
-                data.get("code") == 429
-
+                or data.get("code") == 429
             )
 
             if is_rate_limited:
 
                 logger.warning(
                     "Rate limit Twelve Data "
-                    "(attempt %s/%s). "
-                    "Menunggu %s detik.",
+                    "(%s/%s)",
                     attempt,
                     MAX_RETRIES,
-                    RETRY_BACKOFF_SECONDS,
                 )
 
-                if (
-                    attempt
-                    < MAX_RETRIES
-                ):
+                if attempt < MAX_RETRIES:
 
                     time.sleep(
                         RETRY_BACKOFF_SECONDS
@@ -432,18 +204,14 @@ def fetch_candles(
 
         except requests.RequestException as exc:
 
-            logger.error(
+            logger.exception(
                 "Request Twelve Data gagal "
-                "(attempt %s/%s): %s",
+                "(%s/%s)",
                 attempt,
                 MAX_RETRIES,
-                exc,
             )
 
-            if (
-                attempt
-                < MAX_RETRIES
-            ):
+            if attempt < MAX_RETRIES:
 
                 time.sleep(
                     RETRY_BACKOFF_SECONDS
@@ -452,13 +220,14 @@ def fetch_candles(
                 continue
 
             raise TwelveDataError(
-                "Gagal menghubungi Twelve Data "
-                "setelah beberapa percobaan."
+                "Gagal menghubungi Twelve Data."
             ) from exc
 
-    # =====================================================
-    # VALIDASI RESPONSE
-    # =====================================================
+        except ValueError as exc:
+
+            raise TwelveDataError(
+                "Response Twelve Data tidak valid."
+            ) from exc
 
     if not data:
 
@@ -466,68 +235,45 @@ def fetch_candles(
             "Tidak ada response dari Twelve Data."
         )
 
-    # -----------------------------------------------------
-    # ERROR API
-    # -----------------------------------------------------
-
     if (
-        data.get("status")
-        == "error"
+        data.get("status") == "error"
+        or "values" not in data
     ):
 
-        message = data.get(
+        msg = data.get(
             "message",
-            "Unknown error",
+            "Unknown error dari Twelve Data",
         )
 
         logger.error(
             "Twelve Data error: %s",
-            message,
+            msg,
         )
 
-        raise TwelveDataError(
-            message
-        )
-
-    # -----------------------------------------------------
-    # VALUES
-    # -----------------------------------------------------
+        raise TwelveDataError(msg)
 
     values = data.get(
-        "values"
+        "values",
+        [],
     )
 
     if not values:
 
-        message = data.get(
-            "message",
-            "Twelve Data tidak "
-            "mengembalikan candle.",
-        )
-
         raise TwelveDataError(
-            message
+            "Twelve Data tidak mengembalikan candle."
         )
 
-    # =====================================================
-    # PARSE
-    # =====================================================
-
-    candles: List[Candle] = []
+    candles = []
 
     for row in values:
 
         try:
 
-            candle_time = (
-                _parse_candle_datetime(
-                    row["datetime"]
-                )
-            )
-
             candle = Candle(
 
-                time=candle_time,
+                time=_parse_candle_datetime(
+                    row["datetime"]
+                ),
 
                 open=float(
                     row["open"]
@@ -544,19 +290,11 @@ def fetch_candles(
                 close=float(
                     row["close"]
                 ),
-
             )
 
-            candles.append(
-                candle
-            )
+            candles.append(candle)
 
         except KeyError as exc:
-
-            logger.error(
-                "Field candle tidak lengkap: %s",
-                row,
-            )
 
             raise TwelveDataError(
                 f"Field candle tidak lengkap: {exc}"
@@ -567,91 +305,37 @@ def fetch_candles(
             ValueError,
         ) as exc:
 
-            logger.error(
-                "Data candle tidak valid: %s",
-                row,
-            )
-
             raise TwelveDataError(
                 f"Data candle tidak valid: {row}"
             ) from exc
 
-    # =====================================================
-    # VALIDASI
-    # =====================================================
-
     if not candles:
 
         raise TwelveDataError(
-            "Tidak ada candle valid."
+            "Tidak ada candle valid setelah parsing."
         )
 
-    # =====================================================
-    # SORT
-    # =====================================================
-
     candles.sort(
-        key=lambda candle: candle.time
+        key=lambda c: c.time
     )
 
-    # =====================================================
-    # LOG
-    # =====================================================
-
-    logger.info(
-        "Twelve Data OK | "
-        "symbol=%s | interval=%s | "
-        "candles=%s | last=%s",
-        SYMBOL,
-        interval,
+    logger.debug(
+        "Berhasil mengambil %s candle %s untuk %s",
         len(candles),
-        candles[-1].time,
+        interval,
+        SMC_SYMBOL,
     )
 
     return candles
 
 
-# =========================================================
-# GET CURRENT PRICE
-# =========================================================
-
-def get_current_price() -> float:
-
-    """
-    Mengambil harga terakhir menggunakan candle M1.
-    """
-
-    candles = fetch_candles(
-
-        interval="1min",
-
-        outputsize=1,
-
-    )
-
-    if not candles:
-
-        raise TwelveDataError(
-            "Tidak ada data harga terkini."
-        )
-
-    return candles[-1].close
-
-
-# =========================================================
-# CHECK QUOTA
-# =========================================================
-
 def check_remaining_quota() -> dict:
 
-    """
-    Cek quota Twelve Data.
+    if not TWELVE_TOKEN:
 
-    Jangan dipanggil setiap signal karena
-    endpoint ini dapat menggunakan credit.
-    """
-
-    _validate_config()
+        raise TwelveDataError(
+            "TWELVE_TOKEN belum tersedia."
+        )
 
     try:
 
@@ -660,19 +344,15 @@ def check_remaining_quota() -> dict:
             USAGE_URL,
 
             params={
-                "apikey":
-                    TWELVEDATA_API_KEY
+                "apikey": TWELVE_TOKEN
             },
 
             timeout=15,
-
         )
 
         response.raise_for_status()
 
-        data = response.json()
-
-        return data
+        return response.json()
 
     except requests.RequestException as exc:
 
@@ -685,56 +365,17 @@ def check_remaining_quota() -> dict:
         ) from exc
 
 
-# =========================================================
-# TEST
-# =========================================================
+def get_current_price() -> float:
 
-if __name__ == "__main__":
-
-    logging.basicConfig(
-        level=logging.INFO,
-        format=(
-            "%(asctime)s "
-            "[%(levelname)s] "
-            "%(name)s: %(message)s"
-        ),
+    candles = fetch_candles(
+        interval="1min",
+        outputsize=1,
     )
 
-    try:
+    if not candles:
 
-        candles = fetch_candles(
-            interval="5min",
-            outputsize=10,
+        raise TwelveDataError(
+            "Tidak ada data harga terkini."
         )
 
-        print(
-            "TOTAL CANDLE:",
-            len(candles)
-        )
-
-        if candles:
-
-            last = candles[-1]
-
-            print(
-                "LAST:",
-                last.time,
-                last.close
-            )
-
-            print(
-                "BULLISH:",
-                last.is_bullish
-            )
-
-            print(
-                "BEARISH:",
-                last.is_bearish
-            )
-
-    except Exception as exc:
-
-        print(
-            "ERROR:",
-            exc
-        )
+    return candles[-1].close
