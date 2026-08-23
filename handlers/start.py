@@ -46,34 +46,60 @@ async def start(
 
 
 
-    # ==========================
+        # ==========================
     # USER BARU
     # BELUM ADA DI SHEET
     # ==========================
 
-
     if not member["found"]:
 
+        await message.answer(
+
+f"""
+
+🔒 <b>ANDA BELUM MENGAKTIFKAN
+AI ASSISTANT GOLD</b>
 
 
-        welcome_image = "assets/welcome.jpg"
+Halo <b>{message.from_user.first_name}</b> 👋
 
 
-
-        if os.path.exists(
-            welcome_image
-        ):
+Saat ini Anda belum mengaktifkan
+AI Assistant Gold.
 
 
-            await message.answer_photo(
+━━━━━━━━━━━━━━
 
-                photo=FSInputFile(
-                    welcome_image
-                ),
 
-                caption=f"""
+Silakan Aktifkan
+AI Assistant Gold Anda disini:
 
-🤖 <b>XAU AI ASSISTANT</b>
+
+🌐 <b>signalxau-ai.com</b>
+
+🤖 <b>@Intradayxauusd_bot</b>
+
+
+━━━━━━━━━━━━━━
+
+
+Setelah membership aktif,
+Anda akan mendapatkan akses
+ke layanan AI Assistant Gold.
+
+
+🤖 <b>XAU AI ASSISTANT GOLD</b>
+
+
+""",
+
+            reply_markup=main_keyboard(),
+
+            parse_mode="HTML"
+
+        )
+
+        return
 
 
 Halo <b>{message.from_user.first_name}</b> 👋
