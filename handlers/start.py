@@ -2,23 +2,14 @@ from aiogram import Router
 
 from aiogram.filters import CommandStart
 
-from aiogram.types import (
-    Message,
-    FSInputFile
-)
+from aiogram.types import Message
 
 from services.membership import check_member
 
 from keyboards.reply import main_keyboard
 
-import os
-
-
 
 router = Router()
-
-
-
 
 
 # ==========================
@@ -29,7 +20,6 @@ router = Router()
 @router.message(
     CommandStart()
 )
-
 async def start(
     message: Message
 ):
@@ -43,20 +33,17 @@ async def start(
     )
 
 
-
-
-
-        # ==========================
+    # ==========================
     # USER BARU
     # BELUM ADA DI SHEET
     # ==========================
 
     if not member["found"]:
 
+
         await message.answer(
 
-f"""
-
+            f"""
 🔒 <b>ANDA BELUM MENGAKTIFKAN
 AI ASSISTANT GOLD</b>
 
@@ -71,8 +58,8 @@ AI Assistant Gold.
 ━━━━━━━━━━━━━━
 
 
-Silakan Aktifkan
-AI Assistant Gold Anda disini:
+Silahkan Aktifkan
+AI Assistant Gold Anda Disini:
 
 
 🌐 <b>signalxau-ai.com</b>
@@ -89,142 +76,6 @@ ke layanan AI Assistant Gold.
 
 
 🤖 <b>XAU AI ASSISTANT GOLD</b>
-
-
-""",
-
-            reply_markup=main_keyboard(),
-
-            parse_mode="HTML"
-
-        )
-
-        return
-
-
-Halo <b>{message.from_user.first_name}</b> 👋
-
-
-Selamat datang di
-AI Trading Assistant Anda.
-
-
-<blockquote>
-"Saya akan membantu memberikan
-Signal XAUUSD dengan metode
-Smart Money Concept
-Setiap 1 jam sekali di Menit 00"
-</blockquote>
-
-
-""",
-
-                parse_mode="HTML"
-
-            )
-
-
-
-
-
-
-        lot_image = "assets/lot_size.jpg"
-
-
-
-        if os.path.exists(
-            lot_image
-        ):
-
-
-            await message.answer_photo(
-
-                photo=FSInputFile(
-                    lot_image
-                ),
-
-                caption="""
-
-📚 <b>MONEY MANAGEMENT GUIDE</b>
-
-
-Sebelum mengikuti signal,
-gunakan lot sesuai modal
-dan risiko Anda.
-
-
-<blockquote>
-"Protect your capital first,
-profit will follow."
-</blockquote>
-
-
-⚠️ Hindari over lot.
-
-
-""",
-
-                parse_mode="HTML"
-
-            )
-
-
-
-
-
-
-
-        await message.answer(
-
-f"""
-
-🤖 <b>XAU AI ASSISTANT PREMIUM</b>
-
-
-Halo <b>{message.from_user.first_name}</b> 👋
-
-
-Saya adalah AI Assistant pribadi Anda.
-
-
-Saya akan memberikan:
-
-
-📊 Signal XAUUSD
-
-🧠 Smart Money Concept Analysis
-
-📈 Market Structure
-
-💎 Liquidity Analysis
-
-
-━━━━━━━━━━━━━━
-
-
-⏰ Jadwal Signal:
-
-
-Setiap 1 jam sekali
-
-Menit 00
-
-
-━━━━━━━━━━━━━━
-
-
-Untuk mengaktifkan akses premium,
-silahkan lakukan membership.
-
-
-Gunakan:
-
-<b>/menu</b>
-
-
-🤖 XAU AI ASSISTANT
-
-
 """,
 
             reply_markup=main_keyboard(),
@@ -235,11 +86,6 @@ Gunakan:
 
 
         return
-
-
-
-
-
 
 
     # ==========================
@@ -251,11 +97,9 @@ Gunakan:
     if not member["active"]:
 
 
-
         await message.answer(
 
-f"""
-
+            f"""
 🔒 <b>MEMBERSHIP SUDAH HABIS</b>
 
 
@@ -296,8 +140,6 @@ Hubungi:
 
 
 <b>XAU AI ASSISTANT</b>
-
-
 """,
 
             reply_markup=main_keyboard(),
@@ -310,21 +152,14 @@ Hubungi:
         return
 
 
-
-
-
-
-
     # ==========================
     # MEMBER MASIH AKTIF
     # ==========================
 
 
-
     await message.answer(
 
-f"""
-
+        f"""
 🤖 <b>XAU AI ASSISTANT</b>
 
 
@@ -368,8 +203,6 @@ untuk melihat layanan Anda.
 
 
 🤖 <b>XAU AI ASSISTANT</b>
-
-
 """,
 
         reply_markup=main_keyboard(),
