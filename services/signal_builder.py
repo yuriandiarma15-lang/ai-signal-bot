@@ -3669,53 +3669,6 @@ def format_signal_message(
 
         "",
 
-        # ================================================
-        # EDUCATION
-        # ================================================
-
-        "📚 *CARA MEMBACA SIGNAL*",
-
-        (
-            "1️⃣ Lihat arah BUY/SELL dan probability "
-            "tertinggi."
-        ),
-
-        (
-            "2️⃣ Lihat Market sekarang dibandingkan "
-            "dengan Entry Area."
-        ),
-
-        (
-            "3️⃣ Jika Buy Limit, tunggu harga turun "
-            "ke Entry Area."
-        ),
-
-        (
-            "4️⃣ Jika Sell Limit, tunggu harga naik "
-            "ke Entry Area."
-        ),
-
-        (
-            "5️⃣ BOS/CHoCH menunjukkan perubahan/"
-            "kelanjutan struktur."
-        ),
-
-        (
-            "6️⃣ OB dan Demand/Supply menunjukkan "
-            "area reaksi potensial."
-        ),
-
-        (
-            "7️⃣ FVG menunjukkan imbalance yang "
-            "berpotensi diretrace."
-        ),
-
-        (
-            "8️⃣ Liquidity menunjukkan area yang "
-            "berpotensi menjadi target sweep."
-        ),
-
-        "",
 
         # ================================================
         # REASONS
