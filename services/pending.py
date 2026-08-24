@@ -1,50 +1,10 @@
-"""
-services/pending.py
-
-PENDING SIGNAL STORAGE
-======================
-
-Fungsi:
-
-- Menyimpan TradeSignal ke JSON
-- Mendukung object dataclass seperti TradeSignal
-- Mendukung nested dataclass seperti SMCResult
-- Mendukung datetime timezone-aware
-- Mengembalikan object asli saat dibaca
-- Aman digunakan scheduler
-- Mendukung delay pengiriman website
-- Atomic JSON write
-- Tidak lagi menghasilkan:
-
-    TypeError:
-    Object of type TradeSignal is not JSON serializable
-"""
-
-
 import json
 import logging
 import os
-import importlib
 
-from dataclasses import (
-    is_dataclass,
-    fields,
-)
-
-from datetime import (
-    datetime,
-    timedelta,
-)
-
-from enum import Enum
-
-from typing import (
-    Any,
-    Dict,
-    List,
-    Optional,
-)
-
+from dataclasses import asdict, is_dataclass
+from datetime import datetime, timedelta
+from typing import Any, Dict, List, Optional
 
 from config.settings import TIMEZONE
 
@@ -61,20 +21,15 @@ logger = logging.getLogger(__name__)
 # =========================================================
 
 try:
-
     from zoneinfo import ZoneInfo
 
-    WIB = ZoneInfo(
-        TIMEZONE
-    )
+    WIB = ZoneInfo(TIMEZONE)
 
 except Exception:
 
     import pytz
 
-    WIB = pytz.timezone(
-        TIMEZONE
-    )
+    WIB = pytz.timezone(TIMEZONE)
 
 
 # =========================================================
@@ -90,53 +45,35 @@ DATA_FILE = os.path.join(
 
 
 # =========================================================
-# SERIALIZATION
+# JSON SERIALIZER
 # =========================================================
 
-def _serialize(
-    value: Any,
-) -> Any:
+def _json_safe(value: Any) -> Any:
     """
-    Mengubah object Python menjadi object
-    yang dapat disimpan sebagai JSON.
+    Mengubah object Python menjadi object yang bisa
+    disimpan oleh JSON.
 
-    Mendukung:
+    Support:
 
-    - None
-    - str
-    - int
-    - float
-    - bool
+    - TradeSignal
+    - SMCResult
+    - dataclass nested
+    - datetime
     - list
     - tuple
     - dict
-    - datetime
-    - Enum
-    - dataclass
-    - nested dataclass
+    - primitive
     """
 
     # -----------------------------------------------------
-    # NONE / PRIMITIVE
+    # DATACLASS
     # -----------------------------------------------------
 
-    if value is None:
+    if is_dataclass(value):
 
-        return None
-
-
-    if isinstance(
-        value,
-        (
-            str,
-            int,
-            float,
-            bool,
-        ),
-    ):
-
-        return value
-
+        return _json_safe(
+            asdict(value)
+        )
 
     # -----------------------------------------------------
     # DATETIME
@@ -147,87 +84,7 @@ def _serialize(
         datetime,
     ):
 
-        return {
-            "__type__": "datetime",
-            "value": value.isoformat(),
-        }
-
-
-    # -----------------------------------------------------
-    # ENUM
-    # -----------------------------------------------------
-
-    if isinstance(
-        value,
-        Enum,
-    ):
-
-        enum_class = type(
-            value
-        )
-
-        return {
-
-            "__type__": "enum",
-
-            "module":
-                enum_class.__module__,
-
-            "class":
-                enum_class.__qualname__,
-
-            "value":
-                _serialize(
-                    value.value
-                ),
-        }
-
-
-    # -----------------------------------------------------
-    # DATACLASS
-    # -----------------------------------------------------
-
-    if is_dataclass(
-        value
-    ):
-
-        cls = type(
-            value
-        )
-
-        result = {
-
-            "__type__":
-                "dataclass",
-
-            "module":
-                cls.__module__,
-
-            "class":
-                cls.__qualname__,
-
-            "fields": {},
-        }
-
-
-        for field in fields(
-            value
-        ):
-
-            field_value = getattr(
-                value,
-                field.name,
-            )
-
-            result["fields"][
-                field.name
-            ] = _serialize(
-                field_value
-            )
-
-
-        return result
-
+        return value.isoformat()
 
     # -----------------------------------------------------
     # DICT
@@ -239,115 +96,44 @@ def _serialize(
     ):
 
         return {
-
-            "__type__":
-                "dict",
-
-            "items": [
-
-                [
-                    _serialize(key),
-                    _serialize(val),
-                ]
-
-                for key, val in value.items()
-
-            ],
+            str(key): _json_safe(val)
+            for key, val in value.items()
         }
 
-
     # -----------------------------------------------------
-    # LIST / TUPLE / SET
+    # LIST / TUPLE
     # -----------------------------------------------------
 
     if isinstance(
         value,
-        (
-            list,
-            tuple,
-            set,
-        ),
+        (list, tuple),
     ):
 
         return [
-
-            _serialize(item)
-
+            _json_safe(item)
             for item in value
-
         ]
 
-
     # -----------------------------------------------------
-    # FALLBACK
+    # SET
     # -----------------------------------------------------
 
-    logger.warning(
-        "Object tidak memiliki serializer khusus: %s",
-        type(value),
-    )
+    if isinstance(
+        value,
+        set,
+    ):
 
-    return {
-        "__type__":
-            "repr",
-
-        "value":
-            repr(value),
-    }
-
-
-# =========================================================
-# IMPORT CLASS
-# =========================================================
-
-def _get_class(
-    module_name: str,
-    class_name: str,
-):
-    """
-    Mengambil class berdasarkan module + qualname.
-
-    Contoh:
-
-        services.signal_builder.TradeSignal
-    """
-
-    module = importlib.import_module(
-        module_name
-    )
-
-    obj = module
-
-    for part in class_name.split("."):
-
-        obj = getattr(
-            obj,
-            part,
-        )
-
-    return obj
-
-
-# =========================================================
-# DESERIALIZATION
-# =========================================================
-
-def _deserialize(
-    value: Any,
-) -> Any:
-    """
-    Mengembalikan object JSON menjadi
-    object Python semula.
-    """
+        return [
+            _json_safe(item)
+            for item in value
+        ]
 
     # -----------------------------------------------------
     # PRIMITIVE
     # -----------------------------------------------------
 
     if value is None:
-
         return None
-
 
     if isinstance(
         value,
@@ -361,178 +147,11 @@ def _deserialize(
 
         return value
 
-
     # -----------------------------------------------------
-    # LIST
-    # -----------------------------------------------------
-
-    if isinstance(
-        value,
-        list,
-    ):
-
-        return [
-
-            _deserialize(item)
-
-            for item in value
-
-        ]
-
-
-    # -----------------------------------------------------
-    # NON-DICT
+    # FALLBACK
     # -----------------------------------------------------
 
-    if not isinstance(
-        value,
-        dict,
-    ):
-
-        return value
-
-
-    object_type = value.get(
-        "__type__"
-    )
-
-
-    # -----------------------------------------------------
-    # DATETIME
-    # -----------------------------------------------------
-
-    if object_type == "datetime":
-
-        dt = datetime.fromisoformat(
-            value["value"]
-        )
-
-        if dt.tzinfo is None:
-
-            dt = dt.replace(
-                tzinfo=WIB
-            )
-
-        return dt.astimezone(
-            WIB
-        )
-
-
-    # -----------------------------------------------------
-    # ENUM
-    # -----------------------------------------------------
-
-    if object_type == "enum":
-
-        cls = _get_class(
-
-            value["module"],
-
-            value["class"],
-
-        )
-
-        enum_value = _deserialize(
-            value["value"]
-        )
-
-        return cls(
-            enum_value
-        )
-
-
-    # -----------------------------------------------------
-    # DATACLASS
-    # -----------------------------------------------------
-
-    if object_type == "dataclass":
-
-        cls = _get_class(
-
-            value["module"],
-
-            value["class"],
-
-        )
-
-        kwargs = {}
-
-        for name, field_value in (
-            value.get(
-                "fields",
-                {}
-            ).items()
-        ):
-
-            kwargs[name] = _deserialize(
-                field_value
-            )
-
-
-        return cls(
-            **kwargs
-        )
-
-
-    # -----------------------------------------------------
-    # DICT
-    # -----------------------------------------------------
-
-    if object_type == "dict":
-
-        result = {}
-
-        for pair in value.get(
-            "items",
-            [],
-        ):
-
-            if (
-                not isinstance(
-                    pair,
-                    list,
-                )
-                or len(pair) != 2
-            ):
-
-                continue
-
-            key = _deserialize(
-                pair[0]
-            )
-
-            val = _deserialize(
-                pair[1]
-            )
-
-            result[key] = val
-
-        return result
-
-
-    # -----------------------------------------------------
-    # FALLBACK / UNKNOWN
-    # -----------------------------------------------------
-
-    if object_type == "repr":
-
-        return value.get(
-            "value"
-        )
-
-
-    # -----------------------------------------------------
-    # NORMAL DICT
-    # -----------------------------------------------------
-
-    return {
-
-        key:
-            _deserialize(val)
-
-        for key, val in value.items()
-
-    }
+    return str(value)
 
 
 # =========================================================
@@ -541,16 +160,10 @@ def _deserialize(
 
 def _load() -> List[Dict[str, Any]]:
     """
-    Membaca pending_signal.json.
+    Membaca pending signal dari JSON.
 
-    Jika file belum ada:
-        []
-
-    Jika JSON rusak:
-        []
-
-    Jika format bukan list:
-        []
+    Jika file belum ada / kosong / rusak,
+    mengembalikan list kosong.
     """
 
     if not os.path.exists(
@@ -558,7 +171,6 @@ def _load() -> List[Dict[str, Any]]:
     ):
 
         return []
-
 
     try:
 
@@ -568,10 +180,7 @@ def _load() -> List[Dict[str, Any]]:
             encoding="utf-8",
         ) as f:
 
-            data = json.load(
-                f
-            )
-
+            data = json.load(f)
 
         if not isinstance(
             data,
@@ -579,60 +188,13 @@ def _load() -> List[Dict[str, Any]]:
         ):
 
             logger.warning(
-                "Format pending_signal.json tidak valid."
+                "Format pending_signal.json tidak valid. "
+                "Reset ke list kosong."
             )
 
             return []
 
-
-        # -------------------------------------------------
-        # DESERIALIZE
-        # -------------------------------------------------
-
-        result = []
-
-
-        for item in data:
-
-            if not isinstance(
-                item,
-                dict,
-            ):
-
-                continue
-
-
-            restored = dict(
-                item
-            )
-
-
-            if "signal" in restored:
-
-                try:
-
-                    restored["signal"] = (
-                        _deserialize(
-                            restored["signal"]
-                        )
-                    )
-
-                except Exception:
-
-                    logger.exception(
-                        "Gagal deserialize pending signal."
-                    )
-
-                    continue
-
-
-            result.append(
-                restored
-            )
-
-
-        return result
-
+        return data
 
     except (
         json.JSONDecodeError,
@@ -652,40 +214,30 @@ def _load() -> List[Dict[str, Any]]:
 # =========================================================
 
 def _save(
-    data: List[Dict[str, Any]]
+    data: List[Dict[str, Any]],
 ):
     """
     Menyimpan pending signal ke JSON.
 
-    Semua object complex akan diserialisasi
-    terlebih dahulu.
-
-    Penulisan menggunakan temporary file
-    kemudian os.replace().
+    Semua object akan dikonversi menjadi
+    JSON-safe terlebih dahulu.
     """
+
+    os.makedirs(
+        DATA_DIR,
+        exist_ok=True,
+    )
+
+    temp_file = (
+        DATA_FILE
+        + ".tmp"
+    )
 
     try:
 
-        os.makedirs(
-            DATA_DIR,
-            exist_ok=True,
-        )
-
-
-        # -------------------------------------------------
-        # SERIALIZE
-        # -------------------------------------------------
-
-        serialized_data = _serialize(
+        safe_data = _json_safe(
             data
         )
-
-
-        temp_file = (
-            DATA_FILE
-            + ".tmp"
-        )
-
 
         with open(
             temp_file,
@@ -694,48 +246,46 @@ def _save(
         ) as f:
 
             json.dump(
-
-                serialized_data,
-
+                safe_data,
                 f,
-
                 ensure_ascii=False,
-
                 indent=4,
-
             )
 
+            f.flush()
 
-        # -------------------------------------------------
-        # ATOMIC REPLACE
-        # -------------------------------------------------
+            # Pastikan data benar-benar ditulis
+            os.fsync(
+                f.fileno()
+            )
 
+        # Atomic replace
         os.replace(
             temp_file,
             DATA_FILE,
         )
 
-
-        logger.debug(
-            "Pending signal JSON berhasil disimpan."
-        )
-
-
-    except OSError:
+    except Exception:
 
         logger.exception(
             "Gagal menyimpan %s",
             DATA_FILE,
         )
 
-        raise
+        # Bersihkan file temporary jika ada
+        try:
 
+            if os.path.exists(
+                temp_file
+            ):
 
-    except Exception:
+                os.remove(
+                    temp_file
+                )
 
-        logger.exception(
-            "Gagal serialize pending signal."
-        )
+        except OSError:
+
+            pass
 
         raise
 
@@ -754,25 +304,22 @@ def _now() -> datetime:
     )
 
 
-# =========================================================
-# PARSE DATETIME
-# =========================================================
-
 def _parse_datetime(
     value: Any,
 ) -> Optional[datetime]:
     """
     Parse datetime ISO.
 
-    Mendukung:
-        datetime object
-        string ISO
+    Menghasilkan timezone-aware datetime WIB.
     """
 
     if not value:
 
         return None
 
+    # -----------------------------------------------------
+    # Jika sudah datetime
+    # -----------------------------------------------------
 
     if isinstance(
         value,
@@ -796,6 +343,9 @@ def _parse_datetime(
 
             return None
 
+    # -----------------------------------------------------
+    # TIMEZONE
+    # -----------------------------------------------------
 
     if dt.tzinfo is None:
 
@@ -809,31 +359,7 @@ def _parse_datetime(
             WIB
         )
 
-
     return dt
-
-
-# =========================================================
-# NORMALIZE DATETIME
-# =========================================================
-
-def _normalize_datetime(
-    value: datetime,
-) -> datetime:
-    """
-    Memastikan datetime timezone-aware WIB.
-    """
-
-    if value.tzinfo is None:
-
-        return value.replace(
-            tzinfo=WIB
-        )
-
-
-    return value.astimezone(
-        WIB
-    )
 
 
 # =========================================================
@@ -846,83 +372,73 @@ def save_pending_signal(
     delay_minutes: Optional[int] = None,
 ):
     """
-    Menyimpan signal yang akan diproses scheduler.
+    Menyimpan signal pending.
+
+    Bisa menerima:
+
+        TradeSignal
+
+    atau object lain yang bisa dikonversi
+    menjadi JSON-safe.
 
     Contoh:
 
         save_pending_signal(
             signal,
-            delay_minutes=60
+            delay_minutes=60,
         )
-
-    atau:
-
-        save_pending_signal(
-            signal,
-            send_at=datetime(...)
-        )
-
-    FIX:
-
-    TradeSignal sekarang diserialisasi menjadi JSON,
-    sehingga tidak lagi menghasilkan:
-
-        TypeError:
-        Object of type TradeSignal is not JSON serializable
     """
 
     data = _load()
 
     now = _now()
 
-
-    # -----------------------------------------------------
+    # =====================================================
     # TENTUKAN WAKTU KIRIM
-    # -----------------------------------------------------
+    # =====================================================
 
     if send_at is not None:
 
-        send_at = _normalize_datetime(
-            send_at
-        )
+        if send_at.tzinfo is None:
 
+            send_at = send_at.replace(
+                tzinfo=WIB
+            )
+
+        else:
+
+            send_at = send_at.astimezone(
+                WIB
+            )
 
     elif delay_minutes is not None:
 
         send_at = (
             now
             + timedelta(
-                minutes=int(
-                    delay_minutes
-                )
+                minutes=delay_minutes
             )
         )
-
 
     else:
 
         send_at = now
 
+    # =====================================================
+    # KONVERSI SIGNAL
+    # =====================================================
 
-    # -----------------------------------------------------
-    # VALIDASI
-    # -----------------------------------------------------
+    safe_signal = _json_safe(
+        signal
+    )
 
-    if signal is None:
-
-        raise ValueError(
-            "Signal tidak boleh None."
-        )
-
-
-    # -----------------------------------------------------
-    # ITEM
-    # -----------------------------------------------------
+    # =====================================================
+    # DATA ITEM
+    # =====================================================
 
     item = {
 
-        "signal":
-            signal,
+        "signal": safe_signal,
 
         "created_at":
             now.isoformat(),
@@ -935,26 +451,40 @@ def save_pending_signal(
 
     }
 
+    # =====================================================
+    # APPEND
+    # =====================================================
 
     data.append(
         item
     )
 
-
-    # -----------------------------------------------------
-    # SAVE
-    # -----------------------------------------------------
-
     _save(
         data
     )
 
-
     logger.info(
         "Pending signal disimpan | "
-        "send_at=%s | type=%s",
+        "send_at=%s | "
+        "bias=%s | "
+        "entry=%s | "
+        "order=%s",
         send_at.isoformat(),
-        type(signal).__name__,
+        getattr(
+            signal,
+            "bias",
+            "-",
+        ),
+        getattr(
+            signal,
+            "entry_price",
+            "-",
+        ),
+        getattr(
+            signal,
+            "order_type",
+            "-",
+        ),
     )
 
 
@@ -964,11 +494,7 @@ def save_pending_signal(
 
 def get_ready_signals() -> List[Dict[str, Any]]:
     """
-    Mengambil seluruh signal yang sudah
-    waktunya diproses.
-
-    signal yang dikembalikan sudah berupa
-    object TradeSignal asli.
+    Mengambil semua signal yang sudah waktunya diproses.
     """
 
     data = _load()
@@ -976,7 +502,6 @@ def get_ready_signals() -> List[Dict[str, Any]]:
     now = _now()
 
     ready = []
-
 
     for item in data:
 
@@ -987,30 +512,27 @@ def get_ready_signals() -> List[Dict[str, Any]]:
 
             continue
 
-
         send_at = _parse_datetime(
             item.get(
                 "send_at"
             )
         )
 
-
         if send_at is None:
 
             logger.warning(
-                "Pending signal memiliki send_at invalid: %s",
+                "Pending signal memiliki "
+                "send_at invalid: %s",
                 item,
             )
 
             continue
-
 
         if now >= send_at:
 
             ready.append(
                 item
             )
-
 
     return ready
 
@@ -1020,25 +542,29 @@ def get_ready_signals() -> List[Dict[str, Any]]:
 # =========================================================
 
 def mark_as_sent(
-    signal
+    signal,
 ):
     """
     Menandai signal sebagai sudah terkirim.
+
+    Support object TradeSignal maupun dict.
     """
 
     data = _load()
 
-    changed = False
+    target_signal = _json_safe(
+        signal
+    )
 
+    changed = False
 
     for item in data:
 
-        current_signal = item.get(
+        stored_signal = item.get(
             "signal"
         )
 
-
-        if current_signal == signal:
+        if stored_signal == target_signal:
 
             if not item.get(
                 "sent",
@@ -1053,7 +579,6 @@ def mark_as_sent(
 
                 changed = True
 
-
     if changed:
 
         _save(
@@ -1066,28 +591,31 @@ def mark_as_sent(
 # =========================================================
 
 def mark_item_as_sent(
-    item: Dict[str, Any]
+    item: Dict[str, Any],
 ):
     """
-    Menandai satu pending item.
+    Menandai satu item pending
+    sebagai terkirim.
 
-    Lebih aman digunakan scheduler.
+    Menggunakan kombinasi:
+
+    - signal
+    - send_at
     """
 
     data = _load()
 
-
-    target_signal = item.get(
-        "signal"
+    target_signal = _json_safe(
+        item.get(
+            "signal"
+        )
     )
 
     target_send_at = item.get(
         "send_at"
     )
 
-
     changed = False
-
 
     for current in data:
 
@@ -1099,7 +627,6 @@ def mark_item_as_sent(
             "send_at"
         )
 
-
         if (
             current_signal
             == target_signal
@@ -1108,16 +635,20 @@ def mark_item_as_sent(
             == target_send_at
         ):
 
-            current["sent"] = True
+            if not current.get(
+                "sent",
+                False,
+            ):
 
-            current["sent_at"] = (
-                _now().isoformat()
-            )
+                current["sent"] = True
 
-            changed = True
+                current["sent_at"] = (
+                    _now().isoformat()
+                )
+
+                changed = True
 
             break
-
 
     if changed:
 
@@ -1138,11 +669,9 @@ def clean_sent():
 
     data = _load()
 
-
     before = len(
         data
     )
-
 
     data = [
 
@@ -1157,18 +686,15 @@ def clean_sent():
 
     ]
 
-
     after = len(
         data
     )
-
 
     if before != after:
 
         _save(
             data
         )
-
 
         logger.info(
             "Pending signal dibersihkan: %s item",
@@ -1184,11 +710,10 @@ def clean_expired(
     max_age_hours: int = 48,
 ):
     """
-    Menghapus pending signal yang
-    terlalu lama.
+    Menghapus pending signal yang lebih
+    lama dari max_age_hours.
 
-    Default:
-        48 jam
+    Default = 48 jam.
     """
 
     data = _load()
@@ -1199,7 +724,6 @@ def clean_expired(
 
     removed = 0
 
-
     for item in data:
 
         created_at = _parse_datetime(
@@ -1208,20 +732,19 @@ def clean_expired(
             )
         )
 
-
         if created_at is None:
 
+            # Jangan langsung hapus data
+            # yang timestamp-nya invalid.
             cleaned.append(
                 item
             )
 
             continue
 
-
         age = (
             now - created_at
         ).total_seconds()
-
 
         if age > (
             max_age_hours * 3600
@@ -1231,18 +754,15 @@ def clean_expired(
 
             continue
 
-
         cleaned.append(
             item
         )
-
 
     if removed:
 
         _save(
             cleaned
         )
-
 
         logger.info(
             "Pending signal expired "
@@ -1257,11 +777,11 @@ def clean_expired(
 
 def count_pending() -> int:
     """
-    Jumlah signal yang belum terkirim.
+    Menghitung jumlah signal yang
+    belum terkirim.
     """
 
     data = _load()
-
 
     return sum(
 
@@ -1287,3 +807,29 @@ def get_all_pending() -> List[Dict[str, Any]]:
     """
 
     return _load()
+
+
+# =========================================================
+# GET UNSENT PENDING
+# =========================================================
+
+def get_unsent_pending() -> List[Dict[str, Any]]:
+    """
+    Mengambil pending signal yang
+    belum terkirim.
+    """
+
+    data = _load()
+
+    return [
+
+        item
+
+        for item in data
+
+        if not item.get(
+            "sent",
+            False,
+        )
+
+    ]
