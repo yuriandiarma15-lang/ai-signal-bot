@@ -3440,48 +3440,42 @@ def format_signal_message(
 
 
         # ================================================
-        # SIGNAL PALING ATAS
-        # ================================================
+# SIGNAL PALING ATAS
+# ================================================
 
-        "━━━━━━━━━━━━━━━━━━",
+"━━━━━━━━━━━━━━━━━━",
 
-        f"{arrow} *{direction_text} XAUUSD*",
+f"{arrow} *{direction_text} XAUUSD*",
 
-        (
-            f"📊 Probability BUY : "
-            f"*{sig.probability_buy}%*"
-        ),
+(
+    f"🕐 *{datetime.now(WIB).strftime('%d-%m-%Y %H:%M')} WIB*"
+),
 
-        (
-            f"📊 Probability SELL: "
-            f"*{sig.probability_sell}%*"
-        ),
+(
+    f"🏆 Probability tertinggi: "
+    f"*{sig.probability}%* "
+    f"→ *{direction_text}*"
+),
 
-        (
-            f"🏆 Probability tertinggi: "
-            f"*{sig.probability}%* "
-            f"→ *{direction_text}*"
-        ),
+"", 
 
-        "",
+(
+    f"🎯 ENTRY: "
+    f"`{_price_display(sig.entry_price)}`"
+),
 
-        (
-            f"🎯 ENTRY: "
-            f"`{_price_display(sig.entry_price)}`"
-        ),
+(
+    f"📌 ORDER: "
+    f"*{sig.order_type}*"
+),
 
-        (
-            f"📌 ORDER: "
-            f"*{sig.order_type}*"
-        ),
+"", 
 
-        "",
+instruction,
 
-        instruction,
+"━━━━━━━━━━━━━━━━━━",
 
-        "━━━━━━━━━━━━━━━━━━",
-
-        "",
+"",
 
         # ================================================
         # RISK
