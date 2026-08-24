@@ -47,10 +47,8 @@ Tidak ada logika radius USD di file ini.
 Radius zona dikontrol oleh settings.py.
 """
 
-
 from dataclasses import dataclass, field
 from typing import List, Optional, Literal
-
 
 from .twelvedata_client import Candle
 
@@ -73,7 +71,6 @@ Direction = Literal[
 class SwingPoint:
 
     index: int
-
     price: float
 
     # bullish = swing low
@@ -91,14 +88,9 @@ class OrderBlock:
     index: int
 
     high: float
-
     low: float
 
     direction: Direction
-
-    # =====================================================
-    # TAMBAHAN
-    # =====================================================
 
     strength: float = 0.0
 
@@ -119,14 +111,9 @@ class FVG:
     index: int
 
     top: float
-
     bottom: float
 
     direction: Direction
-
-    # =====================================================
-    # TAMBAHAN
-    # =====================================================
 
     strength: float = 0.0
 
@@ -158,15 +145,11 @@ class SMCResult:
     # ZONES
     # =====================================================
 
-    order_blocks: List[
-        OrderBlock
-    ] = field(
+    order_blocks: List[OrderBlock] = field(
         default_factory=list
     )
 
-    fvgs: List[
-        FVG
-    ] = field(
+    fvgs: List[FVG] = field(
         default_factory=list
     )
 
@@ -180,9 +163,7 @@ class SMCResult:
     # REASONS
     # =====================================================
 
-    confluences: List[
-        str
-    ] = field(
+    confluences: List[str] = field(
         default_factory=list
     )
 
@@ -201,11 +182,9 @@ class SMCResult:
     swing_low: Optional[float] = None
 
     higher_high: bool = False
-
     higher_low: bool = False
 
     lower_high: bool = False
-
     lower_low: bool = False
 
 
@@ -219,16 +198,12 @@ def _safe_float(
 ) -> float:
 
     try:
-
-        return float(
-            value
-        )
+        return float(value)
 
     except (
         TypeError,
         ValueError,
     ):
-
         return default
 
 
@@ -254,27 +229,17 @@ def find_swing_points(
         dibanding candle kiri/kanan.
 
     Candle yang belum memiliki cukup
-    candle kanan tidak dianggap swing
-    agar struktur tidak menggunakan
-    candle yang belum terkonfirmasi.
+    candle kanan tidak dianggap swing.
     """
 
     points = []
 
     if not candles:
-
         return points
 
-    n = len(
-        candles
-    )
+    n = len(candles)
 
-    if n < (
-        left
-        + right
-        + 1
-    ):
-
+    if n < left + right + 1:
         return points
 
     for i in range(
@@ -298,16 +263,12 @@ def find_swing_points(
         )
 
         highs = [
-            _safe_float(
-                candle.high
-            )
+            _safe_float(candle.high)
             for candle in window
         ]
 
         lows = [
-            _safe_float(
-                candle.low
-            )
+            _safe_float(candle.low)
             for candle in window
         ]
 
@@ -315,11 +276,8 @@ def find_swing_points(
         # SWING HIGH
         # =================================================
 
-        if current_high >= max(
-            highs
-        ):
+        if current_high >= max(highs):
 
-            # Hindari duplikasi high
             duplicate = any(
                 point.index == i
                 and point.kind == "bearish"
@@ -340,9 +298,7 @@ def find_swing_points(
         # SWING LOW
         # =================================================
 
-        if current_low <= min(
-            lows
-        ):
+        if current_low <= min(lows):
 
             duplicate = any(
                 point.index == i
@@ -361,8 +317,7 @@ def find_swing_points(
                 )
 
     points.sort(
-        key=lambda point:
-        point.index
+        key=lambda point: point.index
     )
 
     return points
@@ -378,15 +333,10 @@ def _classify_swing_structure(
 ) -> dict:
 
     result = {
-
         "higher_high": False,
-
         "higher_low": False,
-
         "lower_high": False,
-
         "lower_low": False,
-
     }
 
     # =====================================================
@@ -396,20 +346,15 @@ def _classify_swing_structure(
     if len(highs) >= 2:
 
         previous_high = highs[-2].price
-
         latest_high = highs[-1].price
 
         if latest_high > previous_high:
 
-            result[
-                "higher_high"
-            ] = True
+            result["higher_high"] = True
 
         elif latest_high < previous_high:
 
-            result[
-                "lower_high"
-            ] = True
+            result["lower_high"] = True
 
     # =====================================================
     # LOW STRUCTURE
@@ -418,20 +363,15 @@ def _classify_swing_structure(
     if len(lows) >= 2:
 
         previous_low = lows[-2].price
-
         latest_low = lows[-1].price
 
         if latest_low > previous_low:
 
-            result[
-                "higher_low"
-            ] = True
+            result["higher_low"] = True
 
         elif latest_low < previous_low:
 
-            result[
-                "lower_low"
-            ] = True
+            result["lower_low"] = True
 
     return result
 
@@ -456,10 +396,6 @@ def detect_structure(
         BOS
         CHoCH
         Range/Belum Break
-
-    Struktur tidak hanya melihat candle terakhir,
-    tetapi juga mempertimbangkan swing yang sudah
-    terkonfirmasi.
     """
 
     if not candles:
@@ -495,12 +431,7 @@ def detect_structure(
     )
 
     last_high = highs[-1]
-
     last_low = lows[-1]
-
-    # =====================================================
-    # DETERMINE PREVIOUS STRUCTURE
-    # =====================================================
 
     structure = _classify_swing_structure(
         highs,
@@ -614,7 +545,6 @@ def _calculate_ob_strength(
     )
 
     if impulse_range <= 0:
-
         return 0.0
 
     body = _safe_float(
@@ -622,17 +552,12 @@ def _calculate_ob_strength(
     )
 
     body_ratio = (
-        body
-        / impulse_range
+        body / impulse_range
     )
 
     displacement = abs(
-        _safe_float(
-            impulse.close
-        )
-        - _safe_float(
-            base.close
-        )
+        _safe_float(impulse.close)
+        - _safe_float(base.close)
     )
 
     strength = (
@@ -680,20 +605,14 @@ def find_order_blocks(
         bearish displacement
         +
         close menembus low candle OB.
-
-    Hanya OB yang searah dengan bias
-    yang dikembalikan.
     """
 
     obs = []
 
     if not candles:
-
         return obs
 
-    recent = candles[
-        -lookback:
-    ]
+    recent = candles[-lookback:]
 
     offset = (
         len(candles)
@@ -701,7 +620,6 @@ def find_order_blocks(
     )
 
     if len(recent) < 2:
-
         return obs
 
     for i in range(
@@ -710,10 +628,7 @@ def find_order_blocks(
     ):
 
         base = recent[i]
-
-        impulse = recent[
-            i + 1
-        ]
+        impulse = recent[i + 1]
 
         base_high = _safe_float(
             base.high
@@ -736,7 +651,6 @@ def find_order_blocks(
         )
 
         if impulse_range <= 0:
-
             continue
 
         body_ratio = (
@@ -756,34 +670,21 @@ def find_order_blocks(
             and impulse_close > base_high
         ):
 
-            strength = (
-                _calculate_ob_strength(
-                    base,
-                    impulse,
-                )
+            strength = _calculate_ob_strength(
+                base,
+                impulse,
             )
 
             obs.append(
                 OrderBlock(
-
-                    index=(
-                        offset + i
-                    ),
-
+                    index=offset + i,
                     high=base_high,
-
                     low=base_low,
-
                     direction="bullish",
-
                     strength=strength,
-
                     mitigated=False,
-
                     fresh=True,
-
                     source_timeframe="M5",
-
                 )
             )
 
@@ -799,39 +700,26 @@ def find_order_blocks(
             and impulse_close < base_low
         ):
 
-            strength = (
-                _calculate_ob_strength(
-                    base,
-                    impulse,
-                )
+            strength = _calculate_ob_strength(
+                base,
+                impulse,
             )
 
             obs.append(
                 OrderBlock(
-
-                    index=(
-                        offset + i
-                    ),
-
+                    index=offset + i,
                     high=base_high,
-
                     low=base_low,
-
                     direction="bearish",
-
                     strength=strength,
-
                     mitigated=False,
-
                     fresh=True,
-
                     source_timeframe="M5",
-
                 )
             )
 
     # =====================================================
-    # REMOVE DUPLICATE / KEEP LATEST
+    # REMOVE DUPLICATE
     # =====================================================
 
     unique = {}
@@ -851,7 +739,7 @@ def find_order_blocks(
     )
 
     # =====================================================
-    # MOST RECENT FIRST
+    # MOST IMPORTANT / STRONGEST FIRST
     # =====================================================
 
     obs.sort(
@@ -862,7 +750,6 @@ def find_order_blocks(
         reverse=True,
     )
 
-    # Maximum 5 candidate OB
     return obs[:5]
 
 
@@ -882,13 +769,10 @@ def _calculate_fvg_strength(
     )
 
     if middle_range <= 0:
-
         return 0.0
 
     body_ratio = (
-        _safe_float(
-            middle.body
-        )
+        _safe_float(middle.body)
         / middle_range
     )
 
@@ -924,11 +808,9 @@ def _calculate_fvg_fill_status(
 ) -> str:
 
     if not candles:
-
         return "untouched"
 
     touched = False
-
     fully_filled = False
 
     for candle in candles:
@@ -980,11 +862,9 @@ def _calculate_fvg_fill_status(
                 fully_filled = True
 
     if fully_filled:
-
         return "full"
 
     if touched:
-
         return "partial"
 
     return "untouched"
@@ -1005,26 +885,19 @@ def find_fvgs(
 
     Bullish:
 
-        candle 1 high
-            <
-        candle 3 low
+        candle 1 high < candle 3 low
 
     Bearish:
 
-        candle 1 low
-            >
-        candle 3 high
+        candle 1 low > candle 3 high
     """
 
     fvgs = []
 
     if len(candles) < 3:
-
         return fvgs
 
-    recent = candles[
-        -lookback:
-    ]
+    recent = candles[-lookback:]
 
     offset = (
         len(candles)
@@ -1036,14 +909,8 @@ def find_fvgs(
     ):
 
         first = recent[i]
-
-        middle = recent[
-            i + 1
-        ]
-
-        third = recent[
-            i + 2
-        ]
+        middle = recent[i + 1]
+        third = recent[i + 2]
 
         first_high = _safe_float(
             first.high
@@ -1071,7 +938,6 @@ def find_fvgs(
         ):
 
             bottom = first_high
-
             top = third_low
 
             gap_size = (
@@ -1079,39 +945,25 @@ def find_fvgs(
             )
 
             if gap_size <= 0:
-
                 continue
 
-            strength = (
-                _calculate_fvg_strength(
-                    first,
-                    middle,
-                    third,
-                    gap_size,
-                )
+            strength = _calculate_fvg_strength(
+                first,
+                middle,
+                third,
+                gap_size,
             )
 
             fvgs.append(
                 FVG(
-
-                    index=(
-                        offset + i + 1
-                    ),
-
+                    index=offset + i + 1,
                     top=top,
-
                     bottom=bottom,
-
                     direction="bullish",
-
                     strength=strength,
-
                     fill_status="untouched",
-
                     fresh=True,
-
                     source_timeframe="M5",
-
                 )
             )
 
@@ -1125,7 +977,6 @@ def find_fvgs(
         ):
 
             top = first_low
-
             bottom = third_high
 
             gap_size = (
@@ -1133,39 +984,25 @@ def find_fvgs(
             )
 
             if gap_size <= 0:
-
                 continue
 
-            strength = (
-                _calculate_fvg_strength(
-                    first,
-                    middle,
-                    third,
-                    gap_size,
-                )
+            strength = _calculate_fvg_strength(
+                first,
+                middle,
+                third,
+                gap_size,
             )
 
             fvgs.append(
                 FVG(
-
-                    index=(
-                        offset + i + 1
-                    ),
-
+                    index=offset + i + 1,
                     top=top,
-
                     bottom=bottom,
-
                     direction="bearish",
-
                     strength=strength,
-
                     fill_status="untouched",
-
                     fresh=True,
-
                     source_timeframe="M5",
-
                 )
             )
 
@@ -1249,7 +1086,6 @@ def check_liquidity_sweep(
     """
 
     if len(swings) < 2:
-
         return False
 
     if bias == "bullish":
@@ -1269,7 +1105,6 @@ def check_liquidity_sweep(
         ]
 
     if not relevant:
-
         return False
 
     target = relevant[-1]
@@ -1351,7 +1186,6 @@ def find_liquidity_levels(
                 current.kind
                 != other.kind
             ):
-
                 continue
 
             if abs(
@@ -1363,11 +1197,13 @@ def find_liquidity_levels(
                     (
                         current.price
                         + other.price
-                    )
-                    / 2
+                    ) / 2
                 )
 
-    # Remove duplicates
+    # =====================================================
+    # REMOVE DUPLICATES
+    # =====================================================
+
     unique = []
 
     for level in levels:
@@ -1378,9 +1214,7 @@ def find_liquidity_levels(
             for x in unique
         ):
 
-            unique.append(
-                level
-            )
+            unique.append(level)
 
     return unique
 
@@ -1450,33 +1284,25 @@ def _build_confluences(
     # HIGHER / LOWER STRUCTURE
     # =====================================================
 
-    if structure[
-        "higher_high"
-    ]:
+    if structure["higher_high"]:
 
         reasons.append(
             "Swing high terbaru membentuk Higher High."
         )
 
-    if structure[
-        "higher_low"
-    ]:
+    if structure["higher_low"]:
 
         reasons.append(
             "Swing low terbaru membentuk Higher Low."
         )
 
-    if structure[
-        "lower_high"
-    ]:
+    if structure["lower_high"]:
 
         reasons.append(
             "Swing high terbaru membentuk Lower High."
         )
 
-    if structure[
-        "lower_low"
-    ]:
+    if structure["lower_low"]:
 
         reasons.append(
             "Swing low terbaru membentuk Lower Low."
@@ -1517,15 +1343,13 @@ def _build_confluences(
         fresh_fvgs = [
             fvg
             for fvg in fvgs
-            if fvg.fill_status
-            == "untouched"
+            if fvg.fill_status == "untouched"
         ]
 
         partial_fvgs = [
             fvg
             for fvg in fvgs
-            if fvg.fill_status
-            == "partial"
+            if fvg.fill_status == "partial"
         ]
 
         if fresh_fvgs:
@@ -1662,11 +1486,9 @@ def analyze(
     Entry point utama.
 
     Input:
-
         candle M5 CLOSED
 
     Output:
-
         SMCResult
 
     Semua zona yang dikembalikan merupakan
@@ -1781,27 +1603,23 @@ def analyze(
     # LIQUIDITY
     # =====================================================
 
-    liquidity_swept = (
-        check_liquidity_sweep(
-            candles=candles,
-            swings=swings,
-            bias=bias,
-        )
+    liquidity_swept = check_liquidity_sweep(
+        candles=candles,
+        swings=swings,
+        bias=bias,
     )
 
     # =====================================================
     # CONFLUENCES
     # =====================================================
 
-    confluences = (
-        _build_confluences(
-            bias=bias,
-            event=event,
-            obs=obs,
-            fvgs=fvgs,
-            liquidity_swept=liquidity_swept,
-            structure=structure,
-        )
+    confluences = _build_confluences(
+        bias=bias,
+        event=event,
+        obs=obs,
+        fvgs=fvgs,
+        liquidity_swept=liquidity_swept,
+        structure=structure,
     )
 
     # =====================================================
@@ -1821,7 +1639,6 @@ def analyze(
     # =====================================================
 
     return SMCResult(
-
         bias=bias,
 
         structure_event=event,
@@ -1964,6 +1781,4 @@ def debug_smc(
         "",
     ]
 
-    return "\n".join(
-        lines
-    )
+    return "\n".join(lines)
