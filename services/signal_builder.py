@@ -4,84 +4,38 @@ services/signal_builder.py
 XAU AI SIGNAL ENGINE
 ====================
 
-VERSI TERBARU
+M5  = STRUCTURE
+M1  = ENTRY TIMING
 
-FUNGSI UTAMA
-------------
-
-1. M5 CLOSED
-   - Struktur utama SMC
-   - BOS
-   - CHoCH
-   - Swing
-   - Liquidity
-   - Order Block
-   - Fair Value Gap
-
-2. M1 ENTRY
-   - Mencari OB/FVG M1
-   - M1 digunakan sebagai timeframe entry
-   - Jika zona M1 valid -> entry menggunakan M1
-   - Jika tidak ada zona M1 -> fallback ke zona M5
-
-3. ZONE
-   - Maximum radius = 100 PIPS
-   - Fresh
-   - Partial
-   - Full / mitigated
-   - Retest
-
-4. ENTRY
-   - Buy Limit
-   - Sell Limit
-   - Market Buy
-   - Market Sell
-   - Tidak menggunakan Buy Stop / Sell Stop
-
-5. CONFIRMATION
-   - M1 rejection
-   - Price action
-   - Zona harus relevan terhadap bias
-
-6. RISK
-   - SL
-   - TP1
-   - TP2
-   - RR
-
-7. REASON
-   - Entry reason bank
-   - Session note bank
-   - Reason berdasarkan kondisi aktual
-
-8. PENDING
-   - Pending timeout 20 menit
-   - Jika tidak tersentuh -> dianggap expired/skip
-
-IMPORTANT
----------
-M5 = STRUCTURE
-M1 = ENTRY TIMING
-
-Prioritas zona:
-
-    M1 valid zone
-        ↓
-    gunakan M1
-
-Jika tidak ada:
-
-    M5 valid zone
-        ↓
-    gunakan M5
+Fitur:
+- M5 closed candle untuk SMC utama
+- BOS / CHoCH
+- Swing
+- Liquidity sweep
+- Order Block
+- Fair Value Gap
+- M1 sebagai entry timing
+- M1 rejection confirmation
+- M1 zone diprioritaskan
+- M5 zone sebagai fallback
+- Radius zona maksimum 100 pip
+- Buy Limit / Sell Limit
+- Market Buy / Market Sell
+- Tidak menggunakan Buy Stop / Sell Stop
+- SL / TP dihitung dari ENTRY PRICE
+- RR validation
+- Probability
+- Entry reason bank
+- Session note bank
+- Pending timeout
+- Compatible dengan scheduler dan /signal
 """
-
 
 # =========================================================
 # IMPORT
 # =========================================================
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 from typing import List, Optional, Tuple
 from zoneinfo import ZoneInfo
@@ -136,74 +90,52 @@ from config import (
 # =========================================================
 
 try:
-
     from config import MAX_ZONE_DISTANCE
-
 except ImportError:
-
-    MAX_ZONE_DISTANCE = (
-        100
-        * SMC_PIP_VALUE
-    )
+    MAX_ZONE_DISTANCE = 100 * SMC_PIP_VALUE
 
 
 try:
-
     from config import MIN_RR_TP1
-
 except ImportError:
-
     MIN_RR_TP1 = 1.20
 
 
 try:
-
     from config import MIN_RR_TP2
-
 except ImportError:
-
     MIN_RR_TP2 = 2.00
 
 
 try:
-
     from config import REQUIRE_M1_REJECTION
-
 except ImportError:
-
     REQUIRE_M1_REJECTION = True
 
 
 try:
-
     from config import ALLOW_PARTIAL_FVG_MARKET
-
 except ImportError:
-
     ALLOW_PARTIAL_FVG_MARKET = False
 
 
 try:
-
     from config import M1_CONFIRMATION_CANDLES
-
 except ImportError:
-
     M1_CONFIRMATION_CANDLES = 5
 
 
+try:
+    from config import MIN_SMC_SCORE
+except ImportError:
+    MIN_SMC_SCORE = 50
+
+
 # =========================================================
-# NEW RADIUS CONFIG
+# ZONE CONFIG
 # =========================================================
 
-# Radius maksimum dalam PIPS.
-#
-# 100 pip XAUUSD dengan pip value 0.1:
-#
-# 100 x 0.1 = 10.0 price distance
-#
 MAX_ZONE_DISTANCE_PIPS = 100
-
 
 MAX_ZONE_DISTANCE_PRICE = (
     MAX_ZONE_DISTANCE_PIPS
@@ -215,9 +147,7 @@ MAX_ZONE_DISTANCE_PRICE = (
 # TIMEZONE
 # =========================================================
 
-WIB = ZoneInfo(
-    TIMEZONE
-)
+WIB = ZoneInfo(TIMEZONE)
 
 
 # =========================================================
@@ -271,15 +201,7 @@ class TradeSignal:
 
     rr_tp2: float = 0.0
 
-    # =====================================================
-    # TIMEFRAME ZONA
-    # =====================================================
-
     zone_timeframe: str = "M5"
-
-    # =====================================================
-    # PENDING EXPIRY
-    # =====================================================
 
     pending_timeout_minutes: int = (
         PENDING_ORDER_TIMEOUT_MINUTES
@@ -291,8 +213,19 @@ class TradeSignal:
 # =========================================================
 
 class NoTradeSignal(Exception):
-
     pass
+
+
+# =========================================================
+# TIMEZONE HELPER
+# =========================================================
+
+def _to_wib(dt: datetime) -> datetime:
+
+    if dt.tzinfo is None:
+        return dt.replace(tzinfo=WIB)
+
+    return dt.astimezone(WIB)
 
 
 # =========================================================
@@ -303,17 +236,7 @@ def _get_session_info(
     dt: datetime,
 ) -> Tuple[str, str]:
 
-    if dt.tzinfo is None:
-
-        dt = dt.replace(
-            tzinfo=WIB
-        )
-
-    else:
-
-        dt = dt.astimezone(
-            WIB
-        )
+    dt = _to_wib(dt)
 
     hour = dt.hour
 
@@ -328,36 +251,20 @@ def _get_session_info(
 
     return (
         "Trading",
-        "Pantau pergerakan harga dengan disiplin dan manajemen risiko.",
+        "Pantau pergerakan harga dengan disiplin "
+        "dan manajemen risiko.",
     )
 
 
 # =========================================================
-# DATETIME
+# CURRENT M5 OPEN
 # =========================================================
-
-def _to_wib(
-    dt: datetime,
-) -> datetime:
-
-    if dt.tzinfo is None:
-
-        return dt.replace(
-            tzinfo=WIB
-        )
-
-    return dt.astimezone(
-        WIB
-    )
-
 
 def _get_current_m5_open_time(
     now: datetime,
 ) -> datetime:
 
-    now = _to_wib(
-        now
-    )
+    now = _to_wib(now)
 
     minute = (
         now.minute // 5
@@ -371,7 +278,7 @@ def _get_current_m5_open_time(
 
 
 # =========================================================
-# CLOSED M5
+# GET CLOSED M5
 # =========================================================
 
 def _get_closed_m5_candles(
@@ -385,14 +292,10 @@ def _get_closed_m5_candles(
             "Jumlah candle closed harus lebih besar dari 0."
         )
 
-    now = datetime.now(
-        WIB
-    )
+    now = datetime.now(WIB)
 
     current_open = (
-        _get_current_m5_open_time(
-            now
-        )
+        _get_current_m5_open_time(now)
     )
 
     closed = []
@@ -405,9 +308,7 @@ def _get_closed_m5_candles(
 
         if candle_time < current_open:
 
-            closed.append(
-                candle
-            )
+            closed.append(candle)
 
     closed.sort(
         key=lambda c: _to_wib(c.time)
@@ -427,7 +328,7 @@ def _get_closed_m5_candles(
 
 
 # =========================================================
-# CLOSED M1
+# GET CLOSED M1
 # =========================================================
 
 def _get_closed_m1_candles(
@@ -436,12 +337,9 @@ def _get_closed_m1_candles(
 ) -> List[Candle]:
 
     if not candles:
-
         return []
 
-    now = datetime.now(
-        WIB
-    )
+    now = datetime.now(WIB)
 
     current_minute = now.replace(
         second=0,
@@ -458,17 +356,11 @@ def _get_closed_m1_candles(
 
         if candle_time < current_minute:
 
-            closed.append(
-                candle
-            )
+            closed.append(candle)
 
     closed.sort(
         key=lambda c: _to_wib(c.time)
     )
-
-    if not closed:
-
-        return []
 
     return closed[-count:]
 
@@ -500,7 +392,6 @@ def _zone_touched_by_recent_price(
 ) -> bool:
 
     if not recent_candles:
-
         return False
 
     for candle in recent_candles:
@@ -510,14 +401,13 @@ def _zone_touched_by_recent_price(
             zone_low,
             zone_high,
         ):
-
             return True
 
     return False
 
 
 # =========================================================
-# FVG FILL STATUS
+# FVG STATUS
 # =========================================================
 
 def _fvg_fill_status(
@@ -528,7 +418,6 @@ def _fvg_fill_status(
 ) -> str:
 
     if not recent_candles:
-
         return "untouched"
 
     touched = _zone_touched_by_recent_price(
@@ -538,26 +427,23 @@ def _fvg_fill_status(
     )
 
     if not touched:
-
         return "untouched"
 
     if direction == "bullish":
 
-        fully_closed_through = any(
+        if any(
             candle.close < bottom
             for candle in recent_candles
-        )
+        ):
+            return "full"
 
-    else:
+    elif direction == "bearish":
 
-        fully_closed_through = any(
+        if any(
             candle.close > top
             for candle in recent_candles
-        )
-
-    if fully_closed_through:
-
-        return "full"
+        ):
+            return "full"
 
     return "partial"
 
@@ -571,7 +457,6 @@ def _price_to_pips(
 ) -> float:
 
     if SMC_PIP_VALUE <= 0:
-
         return 0.0
 
     return (
@@ -605,7 +490,6 @@ def _zone_distance(
         <= current_price
         <= zone_high
     ):
-
         return 0.0
 
     if current_price < zone_low:
@@ -627,19 +511,17 @@ def _zone_distance_pips(
     zone_high: float,
 ) -> float:
 
-    distance = _zone_distance(
-        current_price,
-        zone_low,
-        zone_high,
-    )
-
     return _price_to_pips(
-        distance
+        _zone_distance(
+            current_price,
+            zone_low,
+            zone_high,
+        )
     )
 
 
 # =========================================================
-# M1 BULLISH REJECTION
+# BULLISH REJECTION
 # =========================================================
 
 def _bullish_rejection(
@@ -649,7 +531,6 @@ def _bullish_rejection(
 ) -> bool:
 
     if not candles:
-
         return False
 
     for candle in candles:
@@ -659,24 +540,37 @@ def _bullish_rejection(
             zone_low,
             zone_high,
         ):
-
             continue
 
         candle_range = candle.range
 
         if candle_range <= 0:
-
             continue
 
         close_strength = (
-            candle.close
-            - candle.low
+            candle.close - candle.low
         ) / candle_range
 
-        if (
-            candle.is_bullish
-            and close_strength >= 0.55
-        ):
+        lower_wick = (
+            min(candle.open, candle.close)
+            - candle.low
+        )
+
+        body = abs(
+            candle.close
+            - candle.open
+        )
+
+        # Candle harus bullish
+        if not candle.is_bullish:
+            continue
+
+        # Close harus relatif kuat
+        if close_strength < 0.55:
+            continue
+
+        # Minimal ada rejection body/wick
+        if lower_wick >= body * 0.5:
 
             return True
 
@@ -684,7 +578,7 @@ def _bullish_rejection(
 
 
 # =========================================================
-# M1 BEARISH REJECTION
+# BEARISH REJECTION
 # =========================================================
 
 def _bearish_rejection(
@@ -694,7 +588,6 @@ def _bearish_rejection(
 ) -> bool:
 
     if not candles:
-
         return False
 
     for candle in candles:
@@ -704,24 +597,34 @@ def _bearish_rejection(
             zone_low,
             zone_high,
         ):
-
             continue
 
         candle_range = candle.range
 
         if candle_range <= 0:
-
             continue
 
         close_strength = (
-            candle.high
-            - candle.close
+            candle.high - candle.close
         ) / candle_range
 
-        if (
-            candle.is_bearish
-            and close_strength >= 0.55
-        ):
+        upper_wick = (
+            candle.high
+            - max(candle.open, candle.close)
+        )
+
+        body = abs(
+            candle.close
+            - candle.open
+        )
+
+        if not candle.is_bearish:
+            continue
+
+        if close_strength < 0.55:
+            continue
+
+        if upper_wick >= body * 0.5:
 
             return True
 
@@ -740,7 +643,6 @@ def _has_m1_rejection(
 ) -> bool:
 
     if not recent_candles:
-
         return False
 
     check_candles = (
@@ -772,7 +674,7 @@ def _has_m1_rejection(
 
 
 # =========================================================
-# ZONE DIRECTION
+# ZONE MATCH BIAS
 # =========================================================
 
 def _zone_matches_bias(
@@ -784,17 +686,19 @@ def _zone_matches_bias(
 
     if bias == "bullish":
 
+        # Buy zone idealnya berada di bawah harga
         return zone_low <= current_price
 
     if bias == "bearish":
 
+        # Sell zone idealnya berada di atas harga
         return zone_high >= current_price
 
     return False
 
 
 # =========================================================
-# GET ZONE FROM SMC
+# COLLECT ZONES
 # =========================================================
 
 def _collect_zones(
@@ -843,12 +747,9 @@ def _collect_zones(
         )
 
         if (
-            max_distance_price
-            is not None
-            and distance
-            > max_distance_price
+            max_distance_price is not None
+            and distance > max_distance_price
         ):
-
             continue
 
         if not _zone_matches_bias(
@@ -857,15 +758,12 @@ def _collect_zones(
             zone_low,
             zone_high,
         ):
-
             continue
 
-        touched = (
-            _zone_touched_by_recent_price(
-                zone_low,
-                zone_high,
-                recent_candles,
-            )
+        touched = _zone_touched_by_recent_price(
+            zone_low,
+            zone_high,
+            recent_candles,
         )
 
         status = (
@@ -886,11 +784,16 @@ def _collect_zones(
                 "low": zone_low,
                 "high": zone_high,
                 "timeframe": timeframe,
+                "index": getattr(
+                    ob,
+                    "index",
+                    -1,
+                ),
             }
         )
 
     # =====================================================
-    # FAIR VALUE GAP
+    # FVG
     # =====================================================
 
     for fvg in getattr(
@@ -925,12 +828,9 @@ def _collect_zones(
         )
 
         if (
-            max_distance_price
-            is not None
-            and distance
-            > max_distance_price
+            max_distance_price is not None
+            and distance > max_distance_price
         ):
-
             continue
 
         if not _zone_matches_bias(
@@ -939,7 +839,6 @@ def _collect_zones(
             zone_low,
             zone_high,
         ):
-
             continue
 
         status = _fvg_fill_status(
@@ -961,6 +860,11 @@ def _collect_zones(
                 "low": zone_low,
                 "high": zone_high,
                 "timeframe": timeframe,
+                "index": getattr(
+                    fvg,
+                    "index",
+                    -1,
+                ),
             }
         )
 
@@ -968,7 +872,7 @@ def _collect_zones(
 
 
 # =========================================================
-# FIND BEST ZONE
+# FIND ENTRY ZONE
 # =========================================================
 
 def _find_entry_zone(
@@ -988,33 +892,40 @@ def _find_entry_zone(
     )
 
     if not candidates:
-
         return None
 
     # =====================================================
     # PRIORITY
     #
-    # 1. Untouched
-    # 2. Partial
-    # 3. Full
+    # Fresh > Partial > Full
     #
-    # Dalam kategori yang sama:
-    # zona terdekat diprioritaskan.
+    # OB lebih diprioritaskan daripada FVG
+    # jika status dan jaraknya sama.
     # =====================================================
 
-    priority = {
+    status_priority = {
         "untouched": 0,
         "partial": 1,
         "full": 2,
     }
 
+    type_priority = {
+        "Order Block": 0,
+        "Fair Value Gap": 1,
+    }
+
     candidates.sort(
         key=lambda x: (
-            priority.get(
+            status_priority.get(
                 x["status"],
                 99,
             ),
+            type_priority.get(
+                x["type"],
+                99,
+            ),
             x["distance"],
+            -x.get("index", -1),
         )
     )
 
@@ -1022,7 +933,7 @@ def _find_entry_zone(
 
 
 # =========================================================
-# FIND ZONE M1 + M5
+# BEST ENTRY ZONE M1 + M5
 # =========================================================
 
 def _find_best_entry_zone(
@@ -1034,7 +945,7 @@ def _find_best_entry_zone(
 ):
 
     # =====================================================
-    # PRIORITAS M1
+    # M1 FIRST
     # =====================================================
 
     if m1_smc is not None:
@@ -1096,13 +1007,11 @@ def _build_entry_description(
     zone_timeframe: str,
 ) -> str:
 
-    tf_text = zone_timeframe
-
     if is_pending:
 
         return (
             f"Pending {order_type} "
-            f"(menunggu retest {tf_text})"
+            f"(menunggu retest {zone_timeframe})"
         )
 
     if (
@@ -1111,7 +1020,7 @@ def _build_entry_description(
     ):
 
         return (
-            f"Market {tf_text} "
+            f"Market {zone_timeframe} "
             "(FVG partial fill)"
         )
 
@@ -1120,30 +1029,30 @@ def _build_entry_description(
         if m1_confirmation:
 
             return (
-                f"Market {tf_text} "
+                f"Market {zone_timeframe} "
                 "(zona diretest + M1 rejection)"
             )
 
         return (
-            f"Market {tf_text} "
+            f"Market {zone_timeframe} "
             "(zona sudah termitigasi)"
         )
 
     if m1_confirmation:
 
         return (
-            f"Market {tf_text} "
+            f"Market {zone_timeframe} "
             "(M1 rejection confirmation)"
         )
 
     return (
-        f"Market {tf_text} "
+        f"Market {zone_timeframe} "
         "(zona valid)"
     )
 
 
 # =========================================================
-# RISK CALCULATION
+# RISK
 # =========================================================
 
 def _calculate_risk(
@@ -1228,7 +1137,7 @@ def _calculate_risk(
 
 
 # =========================================================
-# VALIDATE RR
+# RR VALIDATION
 # =========================================================
 
 def _validate_rr(
@@ -1263,7 +1172,7 @@ def _determine_order_type(
         )
 
     # =====================================================
-    # PARTIAL FVG
+    # PARTIAL
     # =====================================================
 
     if fill_status == "partial":
@@ -1284,7 +1193,7 @@ def _determine_order_type(
         )
 
     # =====================================================
-    # FULL / RETEST
+    # FULL
     # =====================================================
 
     if fill_status == "full":
@@ -1324,17 +1233,22 @@ def _determine_order_type(
                 - current_price
             ) <= MARKET_ENTRY_TOLERANCE:
 
+                if (
+                    REQUIRE_M1_REJECTION
+                    and not m1_confirmation
+                ):
+
+                    return (
+                        "WAIT",
+                        False,
+                    )
+
                 return (
                     "Market",
                     False,
                 )
 
-            return (
-                "WAIT",
-                False,
-            )
-
-        if bias == "bearish":
+        elif bias == "bearish":
 
             if entry_price > current_price:
 
@@ -1348,15 +1262,20 @@ def _determine_order_type(
                 - current_price
             ) <= MARKET_ENTRY_TOLERANCE:
 
+                if (
+                    REQUIRE_M1_REJECTION
+                    and not m1_confirmation
+                ):
+
+                    return (
+                        "WAIT",
+                        False,
+                    )
+
                 return (
                     "Market",
                     False,
                 )
-
-            return (
-                "WAIT",
-                False,
-            )
 
     return (
         "WAIT",
@@ -1375,6 +1294,7 @@ def _calculate_probability(
     is_pending: bool,
     m1_confirmation: bool,
     zone_timeframe: str,
+    structure_event: Optional[str] = None,
 ) -> int:
 
     score = int(
@@ -1387,64 +1307,41 @@ def _calculate_probability(
         )
     )
 
-    # =====================================================
-    # ZONE
-    # =====================================================
-
+    # Zone
     if zone_type:
-
         score += 3
 
-    # =====================================================
-    # M1 CONFIRMATION
-    # =====================================================
-
+    # M1 confirmation
     if m1_confirmation:
+        score += 7
 
-        score += 5
-
-    # =====================================================
-    # FRESH
-    # =====================================================
-
+    # Fresh
     if fill_status == "untouched":
-
         score += 3
 
-    # =====================================================
-    # PARTIAL
-    # =====================================================
-
-    if fill_status == "partial":
-
+    # Partial
+    elif fill_status == "partial":
         score -= 8
 
-    # =====================================================
-    # FULL
-    # =====================================================
-
-    if fill_status == "full":
-
+    # Full
+    elif fill_status == "full":
         score += 1
 
-    # =====================================================
-    # PENDING
-    # =====================================================
-
+    # Pending
     if is_pending:
-
         score -= 1
 
-    # =====================================================
-    # M1 ZONE
-    #
-    # Sedikit bonus karena zona entry lebih dekat
-    # dengan timing actual market.
-    # =====================================================
-
+    # M1 timing
     if zone_timeframe == "M1":
-
         score += 2
+
+    # BOS
+    if structure_event == "BOS":
+        score += 3
+
+    # CHoCH
+    elif structure_event == "CHoCH":
+        score += 1
 
     return int(
         max(
@@ -1567,18 +1464,17 @@ def generate_signal(
     structure_candle_count: Optional[int] = None,
 ) -> TradeSignal:
 
-    now = datetime.now(
-        WIB
-    )
+    now = datetime.now(WIB)
 
     # =====================================================
-    # M5 DATA
+    # M5 OUTPUT SIZE
     # =====================================================
 
     if structure_candle_count is None:
 
-        m5_outputsize = (
-            CANDLES_LOOKBACK
+        m5_outputsize = max(
+            CANDLES_LOOKBACK,
+            CANDLES_FOR_STRUCTURE + 8,
         )
 
     else:
@@ -1587,6 +1483,10 @@ def generate_signal(
             structure_candle_count + 8,
             20,
         )
+
+    # =====================================================
+    # FETCH M5
+    # =====================================================
 
     structure_raw = fetch_candles(
         interval=TF_STRUCTURE,
@@ -1603,14 +1503,16 @@ def generate_signal(
     # CLOSED M5
     # =====================================================
 
+    requested_count = (
+        structure_candle_count
+        if structure_candle_count is not None
+        else CANDLES_FOR_STRUCTURE
+    )
+
     structure_candles = (
         _get_closed_m5_candles(
             structure_raw,
-            (
-                structure_candle_count
-                if structure_candle_count is not None
-                else CANDLES_FOR_STRUCTURE
-            ),
+            requested_count,
         )
     )
 
@@ -1656,6 +1558,18 @@ def generate_signal(
         )
 
     # =====================================================
+    # MINIMUM SMC SCORE
+    # =====================================================
+
+    if m5_smc.score < MIN_SMC_SCORE:
+
+        raise NoTradeSignal(
+            "Score SMC M5 terlalu rendah. "
+            f"Score={m5_smc.score}, "
+            f"minimum={MIN_SMC_SCORE}."
+        )
+
+    # =====================================================
     # M1 DATA
     # =====================================================
 
@@ -1691,6 +1605,12 @@ def generate_signal(
         entry_candles[-1].close
     )
 
+    if current_price <= 0:
+
+        raise NoTradeSignal(
+            "Harga XAUUSD tidak valid."
+        )
+
     # =====================================================
     # RECENT M5
     # =====================================================
@@ -1712,9 +1632,7 @@ def generate_signal(
     )
 
     # =====================================================
-    # ANALISA M1
-    #
-    # Digunakan untuk mencari zona entry.
+    # M1 SMC
     # =====================================================
 
     m1_smc = None
@@ -1723,27 +1641,25 @@ def generate_signal(
 
         if len(entry_candles) >= 12:
 
-            m1_smc = analyze(
+            temp_m1_smc = analyze(
                 entry_candles
             )
 
-            # =================================================
-            # M1 BIAS TIDAK BOLEH MEMBATALKAN M5
-            #
-            # M1 hanya dipakai sebagai timing.
-            # Zona M1 harus searah dengan M5.
-            # =================================================
-
+            # M1 hanya valid bila searah M5.
             if (
-                m1_smc.bias
-                != m5_smc.bias
+                temp_m1_smc.bias
+                == m5_smc.bias
             ):
 
-                m1_smc = None
+                m1_smc = temp_m1_smc
 
-    except Exception:
+    except Exception as exc:
 
-        # M1 analyzer gagal -> fallback M5.
+        print(
+            "[M1 SMC] Analyzer gagal, "
+            f"fallback M5: {exc}"
+        )
+
         m1_smc = None
 
     # =====================================================
@@ -1771,7 +1687,7 @@ def generate_signal(
         )
 
     # =====================================================
-    # ZONE DATA
+    # ZONE
     # =====================================================
 
     zone_price = float(
@@ -1795,25 +1711,35 @@ def generate_signal(
     ]
 
     # =====================================================
-    # CONFIRMATION CANDLES
+    # EXTRA ZONE VALIDATION
     # =====================================================
 
-    if zone_timeframe == "M1":
+    zone_distance_pips = _zone_distance_pips(
+        current_price,
+        zone_low,
+        zone_high,
+    )
 
-        confirmation_candles = recent_m1
+    if (
+        zone_distance_pips
+        > MAX_ZONE_DISTANCE_PIPS
+    ):
 
-    else:
+        raise NoTradeSignal(
+            "Zona terlalu jauh dari harga."
+        )
 
-        confirmation_candles = recent_m1
-
-    # M1 tetap menjadi timing confirmation
-    # bahkan ketika zona berasal dari M5.
+    # =====================================================
+    # M1 CONFIRMATION
+    #
+    # M1 selalu digunakan untuk timing.
+    # =====================================================
 
     m1_confirmation = _has_m1_rejection(
         bias=m5_smc.bias,
         zone_low=zone_low,
         zone_high=zone_high,
-        recent_candles=confirmation_candles,
+        recent_candles=recent_m1,
     )
 
     # =====================================================
@@ -1827,6 +1753,16 @@ def generate_signal(
     else:
 
         entry_price = current_price
+
+    # =====================================================
+    # ENTRY PRICE SANITY
+    # =====================================================
+
+    if entry_price <= 0:
+
+        raise NoTradeSignal(
+            "Entry price tidak valid."
+        )
 
     # =====================================================
     # ORDER TYPE
@@ -1896,7 +1832,7 @@ def generate_signal(
         )
 
     # =====================================================
-    # ENTRY TYPE
+    # ENTRY DESCRIPTION
     # =====================================================
 
     entry_type = _build_entry_description(
@@ -1909,7 +1845,7 @@ def generate_signal(
     )
 
     # =====================================================
-    # REASON BANK
+    # ENTRY REASON BANK
     # =====================================================
 
     reason_text = get_entry_reason(
@@ -1927,13 +1863,13 @@ def generate_signal(
     )
 
     # =====================================================
-    # CONFLUENCES
+    # REASONS
     # =====================================================
 
     reasons = []
 
     # =====================================================
-    # ORIGINAL SMC CONFLUENCES
+    # SMC CONFLUENCES
     # =====================================================
 
     for reason in getattr(
@@ -1967,7 +1903,7 @@ def generate_signal(
     )
 
     # =====================================================
-    # ZONE STATUS
+    # STATUS
     # =====================================================
 
     if fill_status == "untouched":
@@ -2024,19 +1960,13 @@ def generate_signal(
     # DISTANCE
     # =====================================================
 
-    distance_pips = _zone_distance_pips(
-        current_price,
-        zone_low,
-        zone_high,
-    )
-
     reasons.append(
         f"Jarak harga sekarang ke zona sekitar "
-        f"{round(distance_pips, 1)} pip."
+        f"{round(zone_distance_pips, 1)} pip."
     )
 
     # =====================================================
-    # ENTRY PRICE
+    # ENTRY
     # =====================================================
 
     if is_pending:
@@ -2056,7 +1986,7 @@ def generate_signal(
         )
 
     # =====================================================
-    # TIMEFRAME EDUCATION
+    # TIMEFRAME
     # =====================================================
 
     if zone_timeframe == "M1":
@@ -2076,7 +2006,7 @@ def generate_signal(
         )
 
     # =====================================================
-    # EDUCATIONAL REASON
+    # EDUCATION
     # =====================================================
 
     reasons.append(
@@ -2103,11 +2033,10 @@ def generate_signal(
     # SESSION
     # =====================================================
 
-    session_name, session_note = (
-        _get_session_info(
-            now
-        )
-    )
+    (
+        session_name,
+        session_note,
+    ) = _get_session_info(now)
 
     extra_note = get_session_extra_note(
         session_name=session_name,
@@ -2135,6 +2064,7 @@ def generate_signal(
         is_pending=is_pending,
         m1_confirmation=m1_confirmation,
         zone_timeframe=zone_timeframe,
+        structure_event=m5_smc.structure_event,
     )
 
     # =====================================================
@@ -2222,7 +2152,7 @@ def generate_signal(
 
 
 # =========================================================
-# COMPATIBILITY WRAPPER
+# BUILD SIGNAL COMPATIBILITY
 # =========================================================
 
 def build_signal(
@@ -2243,7 +2173,6 @@ def _price_display(
 ) -> str:
 
     if price is None:
-
         return "-"
 
     try:
@@ -2263,7 +2192,7 @@ def _price_display(
 
 
 # =========================================================
-# WRAP TEXT
+# TEXT WRAPPER
 # =========================================================
 
 def _wrap_reason(
@@ -2271,9 +2200,7 @@ def _wrap_reason(
     width: int = 34,
 ) -> str:
 
-    words = str(text).split(
-        " "
-    )
+    words = str(text).split(" ")
 
     lines = []
 
@@ -2303,14 +2230,9 @@ def _wrap_reason(
             ).strip()
 
     if current:
+        lines.append(current)
 
-        lines.append(
-            current
-        )
-
-    return "\n   ".join(
-        lines
-    )
+    return "\n   ".join(lines)
 
 
 # =========================================================
@@ -2351,48 +2273,33 @@ def format_signal_message(
 
         "",
 
-        # =================================================
         # ENTRY
-        # =================================================
-
         (
             f"{entry_label} : "
             f"`{_price_display(sig.entry_price)}`"
         ),
 
-        # =================================================
-        # TIMEFRAME ENTRY
-        # =================================================
-
+        # TIMEFRAME
         (
             f"⏱ Timeframe zona : "
             f"*{sig.zone_timeframe}*"
         ),
 
-        # =================================================
         # SL
-        # =================================================
-
         (
             f"🛑 SL     : "
             f"`{_price_display(sig.sl)}` "
             f"(-{SL_PIPS} pip)"
         ),
 
-        # =================================================
         # TP1
-        # =================================================
-
         (
             f"✅ TP1    : "
             f"`{_price_display(sig.tp1)}` "
             f"(+{TP1_PIPS} pip)"
         ),
 
-        # =================================================
         # TP2
-        # =================================================
-
         (
             f"✅ TP2    : "
             f"`{_price_display(sig.tp2)}` "
@@ -2401,20 +2308,14 @@ def format_signal_message(
 
         "",
 
-        # =================================================
         # RR
-        # =================================================
-
         (
             f"📐 RR      : "
             f"TP1 1:{sig.rr_tp1:.2f} | "
             f"TP2 1:{sig.rr_tp2:.2f}"
         ),
 
-        # =================================================
-        # PROBABILITY
-        # =================================================
-
+        # Probability
         (
             f"📈 Probabilitas: "
             f"*{sig.probability}%*"
@@ -2422,10 +2323,7 @@ def format_signal_message(
 
         "",
 
-        # =================================================
-        # ZONE
-        # =================================================
-
+        # Zone
         (
             f"📍 Zona: "
             f"{sig.zone_type or '-'} "
@@ -2569,9 +2467,7 @@ def format_signal_message(
         "🤖 _Signal ini dihasilkan oleh AI Agent Gold_",
     ]
 
-    return "\n".join(
-        lines
-    )
+    return "\n".join(lines)
 
 
 # =========================================================
