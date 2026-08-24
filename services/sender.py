@@ -1,12 +1,22 @@
 """
+services/sender.py
+
 Telegram Signal Sender
+======================
 
 Fungsi:
 - Mengambil seluruh member aktif
 - Mengirim signal ke masing-masing member
-- Menerima signal berupa string ATAU TradeSignal object
-- Otomatis melakukan konversi TradeSignal -> string
-- Menggunakan Markdown
+- Menerima:
+    1. TradeSignal object
+    2. string
+- Jika TradeSignal:
+    -> gunakan format_signal_message()
+      dari signal_builder.py
+
+PENTING:
+Jangan melakukan formatting ulang di sini.
+Format Telegram dikontrol oleh signal_builder.py.
 """
 
 import asyncio
@@ -16,7 +26,12 @@ from typing import Any, Dict
 
 
 from services.membership import (
-    get_active_members
+    get_active_members,
+)
+
+from services.signal_builder import (
+    TradeSignal,
+    format_signal_message,
 )
 
 
@@ -39,308 +54,65 @@ PARSE_MODE = "Markdown"
 
 
 # =========================================================
-# FORMAT TRADE SIGNAL
+# FORMAT SIGNAL
 # =========================================================
 
 def format_trade_signal(
     signal
 ) -> str:
-
     """
-    Mengubah TradeSignal object
-    menjadi text Telegram.
+    Compatibility wrapper.
 
-    Jika signal sudah berupa string,
-    langsung dikembalikan.
+    TradeSignal:
+        menggunakan format_signal_message()
+
+    String:
+        langsung digunakan.
     """
 
-    # =====================================================
-    # SUDAH STRING
-    # =====================================================
+    # -----------------------------------------------------
+    # STRING
+    # -----------------------------------------------------
 
     if isinstance(
         signal,
-        str
+        str,
     ):
 
         return signal
 
 
-    # =====================================================
-    # AMBIL ATTRIBUTE DENGAN AMAN
-    # =====================================================
-
-    def get_attr(
-        name,
-        default="-"
-    ):
-
-        value = getattr(
-            signal,
-            name,
-            default
-        )
-
-        if value is None:
-
-            return default
-
-        return value
-
-
-    # =====================================================
-    # DATA UTAMA
-    # =====================================================
-
-    timestamp = get_attr(
-        "timestamp",
-        "-"
-    )
-
-    bias = get_attr(
-        "bias",
-        "-"
-    )
-
-    entry_price = get_attr(
-        "entry_price",
-        "-"
-    )
-
-    entry_type = get_attr(
-        "entry_type",
-        "-"
-    )
-
-    order_type = get_attr(
-        "order_type",
-        "-"
-    )
-
-    is_pending = get_attr(
-        "is_pending",
-        False
-    )
-
-    sl = get_attr(
-        "sl",
-        "-"
-    )
-
-    tp1 = get_attr(
-        "tp1",
-        "-"
-    )
-
-    tp2 = get_attr(
-        "tp2",
-        "-"
-    )
-
-    probability = get_attr(
-        "probability",
-        "-"
-    )
-
-
-    # =====================================================
-    # TAMBAHAN SMC
-    # =====================================================
-
-    smc = get_attr(
-        "smc",
-        None
-    )
-
-    zone = "-"
-
-    if smc is not None:
-
-        zone = getattr(
-            smc,
-            "zone",
-            "-"
-        )
-
-        if zone == "-":
-
-            zone = getattr(
-                smc,
-                "entry_zone",
-                "-"
-            )
-
-
-    # =====================================================
-    # RR
-    # =====================================================
-
-    rr_tp1 = get_attr(
-        "rr_tp1",
-        "-"
-    )
-
-    rr_tp2 = get_attr(
-        "rr_tp2",
-        "-"
-    )
-
-
-    # =====================================================
-    # REASONS
-    # =====================================================
-
-    reasons = get_attr(
-        "reasons",
-        []
-    )
-
-
-    if reasons is None:
-
-        reasons = []
-
+    # -----------------------------------------------------
+    # TRADE SIGNAL
+    # -----------------------------------------------------
 
     if isinstance(
-        reasons,
-        str
+        signal,
+        TradeSignal,
     ):
 
-        reasons = [
-            reasons
-        ]
-
-
-    # =====================================================
-    # BUILD REASON TEXT
-    # =====================================================
-
-    reason_text = ""
-
-
-    for reason in reasons:
-
-        if reason:
-
-            reason_text += (
-                f"• {reason}\n"
-            )
-
-
-    if not reason_text:
-
-        reason_text = (
-            "• Konfirmasi struktur "
-            "SMC dan price action\n"
+        return format_signal_message(
+            signal
         )
 
 
-    # =====================================================
-    # NORMALISASI BIAS
-    # =====================================================
+    # -----------------------------------------------------
+    # OBJECT YANG MIRIP TRADE SIGNAL
+    # -----------------------------------------------------
 
-    bias_text = str(
-        bias
-    ).upper()
+    try:
 
-
-    if (
-        "BULL" in bias_text
-    ):
-
-        direction = "🟢 BUY"
-
-    elif (
-        "BEAR" in bias_text
-    ):
-
-        direction = "🔴 SELL"
-
-    else:
-
-        direction = bias_text
-
-
-    # =====================================================
-    # ORDER TYPE
-    # =====================================================
-
-    if is_pending:
-
-        order_text = (
-            f"Pending {order_type}"
+        return format_signal_message(
+            signal
         )
 
-    else:
+    except Exception:
 
-        order_text = (
-            "Market"
+        logger.exception(
+            "Object signal tidak dapat diformat."
         )
 
-
-    # =====================================================
-    # FORMAT
-    # =====================================================
-
-    text = (
-
-        "📢 *XAUUSD M5 SMC SIGNAL*\n"
-        "\n"
-
-        "━━━━━━━━━━━━━━━━━━\n"
-
-        f"📅 *Time:* `{timestamp}`\n"
-
-        f"📊 *Bias:* {direction}\n"
-
-        f"🎯 *Entry:* `{entry_price}`\n"
-
-        f"⚡ *Type:* {entry_type}\n"
-
-        f"📌 *Order:* {order_text}\n"
-
-        f"📍 *Zone:* {zone}\n"
-
-        "\n"
-
-        "━━━━━━━━━━━━━━━━━━\n"
-
-        "🛡️ *RISK MANAGEMENT*\n"
-
-        f"❌ *SL:* `{sl}`\n"
-
-        f"🎯 *TP1:* `{tp1}`\n"
-
-        f"🚀 *TP2:* `{tp2}`\n"
-
-        f"📐 *RR TP1:* `{rr_tp1}`\n"
-
-        f"📐 *RR TP2:* `{rr_tp2}`\n"
-
-        "\n"
-
-        "━━━━━━━━━━━━━━━━━━\n"
-
-        f"🔥 *Probability:* `{probability}%`\n"
-
-        "\n"
-
-        "🧠 *SMC REASONING*\n"
-
-        f"{reason_text}"
-
-        "\n"
-
-        "━━━━━━━━━━━━━━━━━━\n"
-
-        "🤖 *XAU AI SMC GOLD*\n"
-
-        "⚠️ Gunakan risk management."
-
-    )
-
-
-    return text
+        raise
 
 
 # =========================================================
@@ -349,7 +121,7 @@ def format_trade_signal(
 
 async def send_signal_to_members(
     bot,
-    signal_text
+    signal_text,
 ) -> Dict[str, Any]:
 
     """
@@ -360,10 +132,10 @@ async def send_signal_to_members(
     - str
     - TradeSignal object
 
-    Jika TradeSignal object,
-    otomatis dikonversi menjadi text.
+    Jika TradeSignal object:
+        otomatis menggunakan format_signal_message()
+        dari services.signal_builder.
     """
-
 
     # =====================================================
     # VALIDASI BOT
@@ -395,7 +167,7 @@ async def send_signal_to_members(
     except Exception:
 
         logger.exception(
-            "Gagal memformat TradeSignal."
+            "Gagal memformat signal."
         )
 
         return {
@@ -411,12 +183,12 @@ async def send_signal_to_members(
 
     if not isinstance(
         signal_text,
-        str
+        str,
     ):
 
         logger.error(
             "Signal bukan string: %s",
-            type(signal_text)
+            type(signal_text),
         )
 
         return {
@@ -484,7 +256,7 @@ async def send_signal_to_members(
 
     logger.info(
         "Mulai mengirim signal ke %s member aktif.",
-        total
+        total,
     )
 
 
@@ -507,7 +279,7 @@ async def send_signal_to_members(
 
             logger.warning(
                 "Telegram ID kosong: %s",
-                member
+                member,
             )
 
             failed += 1
@@ -527,12 +299,12 @@ async def send_signal_to_members(
 
         except (
             ValueError,
-            TypeError
+            TypeError,
         ):
 
             logger.warning(
                 "Telegram ID tidak valid: %s",
-                telegram_id
+                telegram_id,
             )
 
             failed += 1
@@ -554,7 +326,7 @@ async def send_signal_to_members(
 
                 parse_mode=PARSE_MODE,
 
-                disable_web_page_preview=True
+                disable_web_page_preview=True,
 
             )
 
@@ -564,7 +336,7 @@ async def send_signal_to_members(
 
             logger.info(
                 "Signal TERKIRIM → %s",
-                telegram_id
+                telegram_id,
             )
 
 
@@ -572,11 +344,10 @@ async def send_signal_to_members(
 
             failed += 1
 
-
             logger.error(
                 "Signal GAGAL → %s | %s",
                 telegram_id,
-                repr(e)
+                repr(e),
             )
 
 
@@ -618,7 +389,7 @@ async def send_signal_to_members(
 
         failed,
 
-        total
+        total,
 
     )
 
