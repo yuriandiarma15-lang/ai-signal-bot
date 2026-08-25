@@ -1,20 +1,24 @@
 """
 services/portfolio.py
 
-PORTFOLIO PERFORMANCE XAU AI SIGNAL
+XAU AI SIGNAL PORTFOLIO
 
-Fungsi:
-- Mencatat setiap signal
-- Mencatat Entry
-- Mencatat TP1
-- Mencatat TP2
-- Mencatat SL
-- Mencatat CANCEL
-- Menghitung Win Rate
-- Membuat performance message
-- Menghapus data setelah performance dikirim
+Menyimpan hasil signal harian.
 
-Performance dikirim ke Telegram Channel pada 04:00 WIB.
+HASIL UTAMA:
+    TP1
+    SL
+    CANCEL
+
+TP2:
+    Hanya dicatat untuk informasi portfolio.
+    Tidak mengubah hasil utama signal.
+
+PERFORMANCE:
+    Win
+    Loss
+    Cancel
+    Win Rate
 """
 
 import json
@@ -22,7 +26,7 @@ import logging
 import os
 
 from datetime import datetime
-from typing import Optional, Dict, Any, List
+from typing import Any, Dict, List, Optional
 
 from config.settings import TIMEZONE
 
@@ -31,7 +35,9 @@ from config.settings import TIMEZONE
 # LOGGING
 # =========================================================
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger(
+    "portfolio"
+)
 
 
 # =========================================================
@@ -42,13 +48,17 @@ try:
 
     from zoneinfo import ZoneInfo
 
-    WIB = ZoneInfo(TIMEZONE)
+    WIB = ZoneInfo(
+        TIMEZONE
+    )
 
 except Exception:
 
     import pytz
 
-    WIB = pytz.timezone(TIMEZONE)
+    WIB = pytz.timezone(
+        TIMEZONE
+    )
 
 
 # =========================================================
@@ -60,20 +70,6 @@ DATA_DIR = "data"
 PORTFOLIO_FILE = os.path.join(
     DATA_DIR,
     "portfolio.json",
-)
-
-
-# =========================================================
-# STATUS
-# =========================================================
-
-VALID_STATUS = (
-    "PENDING",
-    "ENTRY",
-    "TP1",
-    "TP2",
-    "SL",
-    "CANCEL",
 )
 
 
@@ -110,14 +106,14 @@ def _load() -> List[Dict[str, Any]]:
 
             data = json.load(f)
 
-        if not isinstance(
+        if isinstance(
             data,
             list,
         ):
 
-            return []
+            return data
 
-        return data
+        return []
 
     except Exception:
 
@@ -158,7 +154,7 @@ def _save(
                 data,
                 f,
                 ensure_ascii=False,
-                indent=2,
+                indent=4,
             )
 
             f.flush()
@@ -196,146 +192,202 @@ def _save(
 
 
 # =========================================================
-# ADD SIGNAL
+# SIGNAL ID
+# =========================================================
+
+def make_signal_id(
+    signal,
+) -> str:
+
+    signal_time = getattr(
+        signal,
+        "signal_time",
+        None,
+    )
+
+    bias = str(
+        getattr(
+            signal,
+            "bias",
+            "UNKNOWN",
+        )
+    ).upper()
+
+    if isinstance(
+        signal_time,
+        datetime,
+    ):
+
+        time_part = (
+            signal_time
+            .astimezone(WIB)
+            .strftime(
+                "%Y%m%d%H%M"
+            )
+        )
+
+    else:
+
+        time_part = now_wib().strftime(
+            "%Y%m%d%H%M"
+        )
+
+    return (
+        time_part
+        + "_"
+        + bias
+    )
+
+
+# =========================================================
+# CREATE PORTFOLIO SIGNAL
 # =========================================================
 
 def add_signal(
     signal,
-) -> Optional[Dict[str, Any]]:
-
+) -> Optional[str]:
     """
     Menambahkan signal baru ke portfolio.
 
-    Status awal:
-
-        PENDING
+    Hanya satu record untuk satu signal.
     """
 
     data = _load()
 
-    now = now_wib()
-
-    # -----------------------------------------------------
-    # SIGNAL DATA
-    # -----------------------------------------------------
-
-    direction = getattr(
+    signal_id = getattr(
         signal,
-        "bias",
-        getattr(
-            signal,
-            "direction",
-            "",
-        ),
+        "signal_id",
+        None,
     )
 
-    entry_price = getattr(
+    if not signal_id:
+
+        signal_id = make_signal_id(
+            signal
+        )
+
+    # -----------------------------------------------------
+    # DUPLICATE
+    # -----------------------------------------------------
+
+    for item in data:
+
+        if item.get(
+            "signal_id"
+        ) == signal_id:
+
+            logger.warning(
+                "Portfolio signal sudah ada: %s",
+                signal_id,
+            )
+
+            return signal_id
+
+    # -----------------------------------------------------
+    # VALUES
+    # -----------------------------------------------------
+
+    entry = getattr(
         signal,
         "entry_price",
         None,
     )
 
-    sl_price = getattr(
-        signal,
-        "sl",
-        getattr(
-            signal,
-            "sl_price",
-            None,
-        ),
-    )
-
-    tp1_price = getattr(
+    tp1 = getattr(
         signal,
         "tp1",
-        getattr(
-            signal,
-            "tp1_price",
-            None,
-        ),
+        None,
     )
 
-    tp2_price = getattr(
+    tp2 = getattr(
         signal,
         "tp2",
+        None,
+    )
+
+    sl = getattr(
+        signal,
+        "sl",
+        None,
+    )
+
+    bias = str(
         getattr(
             signal,
-            "tp2_price",
-            None,
-        ),
+            "bias",
+            "",
+        )
+    ).upper()
+
+    signal_time = getattr(
+        signal,
+        "signal_time",
+        None,
     )
 
-    # -----------------------------------------------------
-    # SIGNAL ID
-    # -----------------------------------------------------
+    if isinstance(
+        signal_time,
+        datetime,
+    ):
 
-    signal_id = (
-        now.strftime(
-            "%Y%m%d_%H%M%S"
+        signal_time = (
+            signal_time
+            .astimezone(WIB)
+            .isoformat()
         )
-        + "_"
-        + str(
-            len(data) + 1
-        )
-    )
+
+    else:
+
+        signal_time = now_wib().isoformat()
 
     # -----------------------------------------------------
-    # ITEM
+    # RECORD
     # -----------------------------------------------------
 
     item = {
 
-        "id":
+        "signal_id":
             signal_id,
 
-        "trading_date":
-            now.strftime(
-                "%Y-%m-%d"
-            ),
-
         "signal_time":
-            now.isoformat(),
+            signal_time,
 
-        "direction":
-            str(
-                direction
-            ).upper(),
+        "bias":
+            bias,
 
-        "entry_price":
-            entry_price,
+        "entry":
+            entry,
 
-        "sl_price":
-            sl_price,
+        "tp1":
+            tp1,
 
-        "tp1_price":
-            tp1_price,
+        "tp2":
+            tp2,
 
-        "tp2_price":
-            tp2_price,
+        "sl":
+            sl,
 
-        "status":
-            "PENDING",
-
-        "entry_hit":
-            False,
-
-        "tp1_hit":
-            False,
-
-        "tp2_hit":
-            False,
-
-        "sl_hit":
-            False,
-
-        "cancelled":
-            False,
-
+        # Hasil utama
         "result":
             None,
 
-        "updated_at":
-            now.isoformat(),
+        # Waktu hasil
+        "result_time":
+            None,
+
+        # TP2 hanya informasi
+        "tp2_hit":
+            False,
+
+        "tp2_hit_time":
+            None,
+
+        # Status entry
+        "entry_hit":
+            False,
+
+        "entry_hit_time":
+            None,
 
     }
 
@@ -348,501 +400,509 @@ def add_signal(
     )
 
     logger.info(
-        "Portfolio signal ditambahkan | "
-        "%s | entry=%s",
-        direction,
-        entry_price,
+        "PORTFOLIO ADD | "
+        "id=%s | bias=%s | entry=%s | tp1=%s | tp2=%s | sl=%s",
+        signal_id,
+        bias,
+        entry,
+        tp1,
+        tp2,
+        sl,
     )
 
-    return item
+    return signal_id
 
 
 # =========================================================
-# UPDATE STATUS
+# FIND SIGNAL
 # =========================================================
 
-def update_signal(
+def _find(
     signal_id: str,
-    status: str,
 ):
-    """
-    Update hasil signal.
-
-    Status:
-
-        ENTRY
-        TP1
-        TP2
-        SL
-        CANCEL
-    """
-
-    status = str(
-        status
-    ).upper()
-
-    if status not in VALID_STATUS:
-
-        raise ValueError(
-            f"Status tidak valid: {status}"
-        )
 
     data = _load()
-
-    found = None
 
     for item in data:
 
         if item.get(
-            "id"
+            "signal_id"
         ) == signal_id:
 
-            found = item
-
-            break
-
-    if found is None:
-
-        logger.warning(
-            "Portfolio signal tidak ditemukan: %s",
-            signal_id,
-        )
-
-        return None
-
-    now = now_wib()
-
-    found["status"] = status
-
-    found["updated_at"] = (
-        now.isoformat()
-    )
-
-    # -----------------------------------------------------
-    # ENTRY
-    # -----------------------------------------------------
-
-    if status == "ENTRY":
-
-        found["entry_hit"] = True
-
-    # -----------------------------------------------------
-    # TP1
-    # -----------------------------------------------------
-
-    elif status == "TP1":
-
-        found["entry_hit"] = True
-
-        found["tp1_hit"] = True
-
-        found["result"] = "TP1"
-
-    # -----------------------------------------------------
-    # TP2
-    # -----------------------------------------------------
-
-    elif status == "TP2":
-
-        found["entry_hit"] = True
-
-        found["tp1_hit"] = True
-
-        found["tp2_hit"] = True
-
-        found["result"] = "TP2"
-
-    # -----------------------------------------------------
-    # SL
-    # -----------------------------------------------------
-
-    elif status == "SL":
-
-        found["entry_hit"] = True
-
-        found["sl_hit"] = True
-
-        found["result"] = "SL"
-
-    # -----------------------------------------------------
-    # CANCEL
-    # -----------------------------------------------------
-
-    elif status == "CANCEL":
-
-        found["cancelled"] = True
-
-        found["result"] = "CANCEL"
-
-    _save(
-        data
-    )
-
-    logger.info(
-        "Portfolio UPDATE | %s | %s",
-        signal_id,
-        status,
-    )
-
-    return found
-
-
-# =========================================================
-# UPDATE BY SIGNAL DATA
-# =========================================================
-
-def update_latest_signal(
-    signal,
-    status: str,
-):
-
-    """
-    Update signal berdasarkan
-    entry price + direction.
-
-    Digunakan oleh monitor.py.
-    """
-
-    data = _load()
-
-    entry_price = getattr(
-        signal,
-        "entry_price",
-        None,
-    )
-
-    direction = getattr(
-        signal,
-        "bias",
-        getattr(
-            signal,
-            "direction",
-            "",
-        ),
-    )
-
-    for item in reversed(
-        data
-    ):
-
-        if (
-            item.get(
-                "entry_price"
-            ) == entry_price
-
-            and
-
-            str(
-                item.get(
-                    "direction",
-                    ""
-                )
-            ).upper()
-
-            ==
-
-            str(
-                direction
-            ).upper()
-        ):
-
-            return update_signal(
-                item["id"],
-                status,
-            )
+            return item
 
     return None
 
 
 # =========================================================
-# GET CURRENT SIGNALS
+# ENTRY HIT
 # =========================================================
 
-def get_current_signals(
-    trading_date: Optional[str] = None,
+def mark_entry_hit(
+    signal_id: str,
 ):
 
     data = _load()
 
-    if trading_date is None:
+    changed = False
 
-        trading_date = (
-            now_wib()
-            .strftime(
-                "%Y-%m-%d"
-            )
-        )
-
-    return [
-
-        item
-
-        for item in data
+    for item in data:
 
         if item.get(
-            "trading_date"
-        ) == trading_date
+            "signal_id"
+        ) != signal_id:
 
-    ]
+            continue
+
+        if item.get(
+            "entry_hit"
+        ):
+
+            return
+
+        item["entry_hit"] = True
+
+        item["entry_hit_time"] = (
+            now_wib().isoformat()
+        )
+
+        changed = True
+
+        break
+
+    if changed:
+
+        _save(
+            data
+        )
+
+        logger.info(
+            "PORTFOLIO ENTRY HIT | %s",
+            signal_id,
+        )
 
 
 # =========================================================
-# STATISTICS
+# RESULT TP1
 # =========================================================
 
-def calculate_statistics(
-    trading_date: Optional[str] = None,
+def mark_tp1(
+    signal_id: str,
 ):
 
-    signals = get_current_signals(
-        trading_date
-    )
+    data = _load()
+
+    changed = False
+
+    for item in data:
+
+        if item.get(
+            "signal_id"
+        ) != signal_id:
+
+            continue
+
+        # -----------------------------------------------
+        # TP1 adalah hasil utama
+        # -----------------------------------------------
+
+        item["result"] = "TP1"
+
+        item["result_time"] = (
+            now_wib().isoformat()
+        )
+
+        changed = True
+
+        break
+
+    if changed:
+
+        _save(
+            data
+        )
+
+        logger.info(
+            "PORTFOLIO RESULT | %s | TP1",
+            signal_id,
+        )
+
+
+# =========================================================
+# RESULT SL
+# =========================================================
+
+def mark_sl(
+    signal_id: str,
+):
+
+    data = _load()
+
+    changed = False
+
+    for item in data:
+
+        if item.get(
+            "signal_id"
+        ) != signal_id:
+
+            continue
+
+        # -----------------------------------------------
+        # Jangan mengubah TP1 menjadi SL
+        # -----------------------------------------------
+
+        if item.get(
+            "result"
+        ) == "TP1":
+
+            return
+
+        item["result"] = "SL"
+
+        item["result_time"] = (
+            now_wib().isoformat()
+        )
+
+        changed = True
+
+        break
+
+    if changed:
+
+        _save(
+            data
+        )
+
+        logger.info(
+            "PORTFOLIO RESULT | %s | SL",
+            signal_id,
+        )
+
+
+# =========================================================
+# RESULT CANCEL
+# =========================================================
+
+def mark_cancel(
+    signal_id: str,
+):
+
+    data = _load()
+
+    changed = False
+
+    for item in data:
+
+        if item.get(
+            "signal_id"
+        ) != signal_id:
+
+            continue
+
+        # -----------------------------------------------
+        # CANCEL hanya jika entry belum hit
+        # -----------------------------------------------
+
+        if item.get(
+            "entry_hit"
+        ):
+
+            return
+
+        item["result"] = "CANCEL"
+
+        item["result_time"] = (
+            now_wib().isoformat()
+        )
+
+        changed = True
+
+        break
+
+    if changed:
+
+        _save(
+            data
+        )
+
+        logger.info(
+            "PORTFOLIO RESULT | %s | CANCEL",
+            signal_id,
+        )
+
+
+# =========================================================
+# TP2 HIT
+# =========================================================
+
+def mark_tp2(
+    signal_id: str,
+):
+
+    data = _load()
+
+    changed = False
+
+    for item in data:
+
+        if item.get(
+            "signal_id"
+        ) != signal_id:
+
+            continue
+
+        if item.get(
+            "tp2_hit"
+        ):
+
+            return
+
+        item["tp2_hit"] = True
+
+        item["tp2_hit_time"] = (
+            now_wib().isoformat()
+        )
+
+        changed = True
+
+        break
+
+    if changed:
+
+        _save(
+            data
+        )
+
+        logger.info(
+            "PORTFOLIO TP2 HIT | %s",
+            signal_id,
+        )
+
+
+# =========================================================
+# GET TODAY
+# =========================================================
+
+def get_today() -> List[Dict[str, Any]]:
+    """
+    Mengambil portfolio hari ini.
+    """
+
+    data = _load()
+
+    today = now_wib().date()
+
+    result = []
+
+    for item in data:
+
+        signal_time = item.get(
+            "signal_time"
+        )
+
+        try:
+
+            dt = datetime.fromisoformat(
+                signal_time
+            )
+
+            if dt.tzinfo is None:
+
+                dt = dt.replace(
+                    tzinfo=WIB
+                )
+
+            else:
+
+                dt = dt.astimezone(
+                    WIB
+                )
+
+            if dt.date() == today:
+
+                result.append(
+                    item
+                )
+
+        except Exception:
+
+            continue
+
+    return result
+
+
+# =========================================================
+# PERFORMANCE
+# =========================================================
+
+def get_performance(
+    items: Optional[List[Dict[str, Any]]] = None,
+) -> Dict[str, Any]:
+    """
+    Menghitung performance.
+
+    Win  = TP1
+    Loss = SL
+    Cancel tidak dihitung sebagai loss.
+    """
+
+    if items is None:
+
+        items = get_today()
 
     total = len(
-        signals
+        items
     )
 
-    tp1 = sum(
+    win = sum(
         1
-        for s in signals
-        if s.get(
-            "result"
-        ) == "TP1"
+        for item in items
+        if item.get("result") == "TP1"
     )
 
-    tp2 = sum(
+    loss = sum(
         1
-        for s in signals
-        if s.get(
-            "result"
-        ) == "TP2"
-    )
-
-    sl = sum(
-        1
-        for s in signals
-        if s.get(
-            "result"
-        ) == "SL"
+        for item in items
+        if item.get("result") == "SL"
     )
 
     cancel = sum(
         1
-        for s in signals
-        if s.get(
-            "result"
-        ) == "CANCEL"
+        for item in items
+        if item.get("result") == "CANCEL"
     )
 
-    # -----------------------------------------------------
-    # RESOLVED
-    # -----------------------------------------------------
-
-    resolved = (
-        tp1
-        + tp2
-        + sl
+    finished = (
+        win
+        + loss
     )
 
-    # -----------------------------------------------------
-    # WIN
-    # -----------------------------------------------------
-
-    wins = (
-        tp1
-        + tp2
-    )
-
-    # -----------------------------------------------------
-    # WIN RATE
-    # -----------------------------------------------------
-
-    if resolved > 0:
+    if finished > 0:
 
         win_rate = (
-            wins
-            / resolved
-        ) * 100
+            win
+            / finished
+            * 100
+        )
 
     else:
 
-        win_rate = 0
+        win_rate = 0.0
 
     return {
 
         "total":
             total,
 
-        "tp1":
-            tp1,
+        "win":
+            win,
 
-        "tp2":
-            tp2,
-
-        "sl":
-            sl,
+        "loss":
+            loss,
 
         "cancel":
             cancel,
 
-        "resolved":
-            resolved,
-
-        "wins":
-            wins,
+        "finished":
+            finished,
 
         "win_rate":
             round(
                 win_rate,
-                1,
+                2,
             ),
 
     }
 
 
 # =========================================================
-# PERFORMANCE MESSAGE
+# FORMAT PERFORMANCE
 # =========================================================
 
-def build_performance_message(
-    trading_date: Optional[str] = None,
+def format_performance(
+    items: Optional[List[Dict[str, Any]]] = None,
 ) -> str:
-
     """
-    Membuat performance Telegram.
-
-    Format dibuat singkat dan profesional.
+    Format sederhana untuk Telegram.
     """
 
-    # -----------------------------------------------------
-    # DATE
-    # -----------------------------------------------------
+    if items is None:
 
-    if trading_date is None:
+        items = get_today()
 
-        trading_date = (
-            now_wib()
-            .strftime(
-                "%Y-%m-%d"
-            )
-        )
-
-    # -----------------------------------------------------
-    # DATA
-    # -----------------------------------------------------
-
-    signals = get_current_signals(
-        trading_date
+    performance = get_performance(
+        items
     )
-
-    stats = calculate_statistics(
-        trading_date
-    )
-
-    # -----------------------------------------------------
-    # HEADER
-    # -----------------------------------------------------
 
     lines = []
 
     lines.append(
-        "📊 XAU AI PERFORMANCE"
+        "📊 *PERFORMANCE XAU AI SIGNAL*"
     )
 
     lines.append(
-        f"📅 {trading_date}"
-    )
-
-    lines.append(
-        "━━━━━━━━━━━━━━"
+        "━━━━━━━━━━━━━━━━━━"
     )
 
     # -----------------------------------------------------
-    # SIGNAL DETAIL
+    # SIGNAL LIST
     # -----------------------------------------------------
 
-    for index, signal in enumerate(
-        signals,
-        start=1,
-    ):
+    for item in items:
 
-        direction = signal.get(
-            "direction",
-            "-"
+        signal_time = item.get(
+            "signal_time"
         )
 
-        entry = signal.get(
-            "entry_price",
-            "-"
+        try:
+
+            dt = datetime.fromisoformat(
+                signal_time
+            )
+
+            hour = dt.strftime(
+                "%H:%M"
+            )
+
+        except Exception:
+
+            hour = "--:--"
+
+        bias = item.get(
+            "bias",
+            "-",
         )
 
-        result = signal.get(
+        entry = item.get(
+            "entry",
+            "-",
+        )
+
+        result = item.get(
             "result"
         )
 
-        if result is None:
-
-            result = "PENDING"
-
-        # -----------------------------------------------
-        # TP1
-        # -----------------------------------------------
-
         if result == "TP1":
 
-            result_text = (
-                f"TP1 "
-                f"{signal.get('tp1_price', '-')}"
-            )
-
-        # -----------------------------------------------
-        # TP2
-        # -----------------------------------------------
-
-        elif result == "TP2":
-
-            result_text = (
-                f"TP2 "
-                f"{signal.get('tp2_price', '-')}"
-            )
-
-        # -----------------------------------------------
-        # SL
-        # -----------------------------------------------
+            result_text = "TP1 +70 Pips"
 
         elif result == "SL":
 
-            result_text = (
-                f"SL "
-                f"{signal.get('sl_price', '-')}"
-            )
-
-        # -----------------------------------------------
-        # CANCEL
-        # -----------------------------------------------
+            result_text = "SL -50 Pips"
 
         elif result == "CANCEL":
 
-            result_text = (
-                "CANCEL"
-            )
-
-        # -----------------------------------------------
-        # PENDING
-        # -----------------------------------------------
+            result_text = "CANCEL"
 
         else:
 
-            result_text = (
-                str(
-                    result
-                )
-            )
+            result_text = "OPEN"
 
         lines.append(
-            f"{index}. "
-            f"{direction} "
-            f"Entry {entry} → "
+            f"🕐 {hour} | "
+            f"{bias} | "
+            f"Entry: {entry} | "
             f"{result_text}"
         )
 
@@ -851,58 +911,39 @@ def build_performance_message(
     # -----------------------------------------------------
 
     lines.append(
-        "━━━━━━━━━━━━━━"
+        "━━━━━━━━━━━━━━━━━━"
     )
 
     lines.append(
-        f"TP1 : {stats['tp1']}"
+        f"✅ TP1 : {performance['win']}"
     )
 
     lines.append(
-        f"TP2 : {stats['tp2']}"
+        f"❌ SL : {performance['loss']}"
     )
 
     lines.append(
-        f"SL : {stats['sl']}"
+        f"🚫 Cancel : {performance['cancel']}"
     )
 
     lines.append(
-        f"Cancel : {stats['cancel']}"
+        f"📈 Win Rate : {performance['win_rate']}%"
     )
 
     lines.append(
-        f"Win Rate : {stats['win_rate']}%"
-    )
-
-    # -----------------------------------------------------
-    # TP2 RESPONSIBILITY
-    # -----------------------------------------------------
-
-    lines.append(
-        "━━━━━━━━━━━━━━"
+        ""
     )
 
     lines.append(
-        "⚠️ TP2 mengikuti keputusan "
-        "masing-masing trader."
+        "🤖 *AI Assistant GOLD*"
     )
 
     lines.append(
-        "Pastikan SL/BE dikelola dengan disiplin."
-    )
-
-    # -----------------------------------------------------
-    # CTA
-    # -----------------------------------------------------
-
-    lines.append("")
-
-    lines.append(
-        "🤖 Ingin mengaktifkan AI Assistant GOLD?"
+        "Aktifkan AI Assistant GOLD:"
     )
 
     lines.append(
-        "Registrasi di @Intradayxauusd_bot"
+        "@Intradayxauusd_bot"
     )
 
     return "\n".join(
@@ -911,85 +952,36 @@ def build_performance_message(
 
 
 # =========================================================
-# GET PERFORMANCE
-# =========================================================
-
-def get_performance(
-    trading_date: Optional[str] = None,
-):
-
-    """
-    Mengambil performance tanpa
-    menghapus data.
-    """
-
-    return build_performance_message(
-        trading_date
-    )
-
-
-# =========================================================
-# CLEAR PORTFOLIO
+# CLEAR PERFORMANCE
 # =========================================================
 
 def clear_portfolio():
 
-    """
-    Menghapus portfolio.json.
-
-    Dipanggil SETELAH performance
-    berhasil dikirim ke Telegram.
-    """
-
-    if not os.path.exists(
-        PORTFOLIO_FILE
-    ):
-
-        logger.info(
-            "Portfolio file tidak ada."
-        )
-
-        return True
-
     try:
 
-        os.remove(
+        if os.path.exists(
             PORTFOLIO_FILE
-        )
+        ):
 
-        logger.info(
-            "portfolio.json berhasil dihapus."
-        )
+            os.remove(
+                PORTFOLIO_FILE
+            )
 
-        return True
+            logger.info(
+                "Portfolio lama dihapus."
+            )
 
     except Exception:
 
         logger.exception(
-            "Gagal menghapus portfolio.json."
+            "Gagal menghapus portfolio."
         )
 
-        return False
-
 
 # =========================================================
-# GET PERFORMANCE AND CLEAR
+# GET ALL
 # =========================================================
 
-def get_performance_and_clear(
-    trading_date: Optional[str] = None,
-):
+def get_all():
 
-    """
-    Compatibility helper.
-
-    PERHATIAN:
-    Fungsi ini hanya membuat message.
-
-    Jangan menghapus portfolio sebelum
-    Telegram berhasil mengirim.
-    """
-
-    return build_performance_message(
-        trading_date
-    )
+    return _load()
