@@ -2,59 +2,38 @@
 services/monitor.py
 
 XAU AI SIGNAL MONITOR
-=====================
 
-Fungsi:
+RULE:
 
-1. Monitor pending entry
-2. Entry maksimal ditunggu 20 menit
-3. Jika entry tidak tersentuh -> CANCEL
-4. Jika entry tersentuh -> monitor TP1 + SL
-5. TP1 dan SL dikirim ke Telegram
-6. TP2 hanya dicatat untuk portfolio
-7. Monitoring berhenti pada menit :59
-8. Scan harga setiap 10 menit
-9. Tidak spam Telegram jika belum ada perubahan
-
-FLOW:
-
-SIGNAL
-  |
-  v
-WAIT ENTRY
-  |
-  +-- ENTRY HIT ------> MONITOR TP1 / SL
-  |
-  +-- 20 MENIT -------> CANCEL
-                         |
-                         v
-                    SIGNAL SELESAI
-
-ENTRY HIT
-  |
-  +-- TP1 HIT ---------> PROFIT
-  |
-  +-- SL HIT ----------> LOSS
-  |
-  +-- :59 -------------> END MONITORING
-
-TP2:
-
-Tidak dikirim sebagai alert monitoring.
-
-Tetap dicatat untuk portfolio.
+1. Scan harga setiap 5 menit.
+2. Entry maksimal ditunggu 20 menit.
+3. Entry tidak kena -> CANCEL.
+4. Entry kena -> monitor TP1 + SL.
+5. TP1 kena -> hasil utama PROFIT +70 pips.
+6. Setelah TP1 kena:
+   - SL tidak lagi dihitung sebagai LOSS.
+   - TP2 hanya dicatat untuk portfolio.
+7. TP2 tidak dikirim ke Telegram.
+8. Jika sampai menit :59 TP1/SL belum kena:
+   - monitoring dihentikan.
+   - kirim pesan penutupan.
+9. Data hasil disimpan untuk performance.
 """
 
 import asyncio
 import logging
 
-from datetime import datetime, timedelta
+from datetime import datetime
 from typing import Any, Dict, List, Optional
 
 from config.settings import TIMEZONE
 
 from services.market import get_price
 from services.sender import send_signal_to_members
+
+from services.performance import (
+    save_signal_result,
+)
 
 
 # =========================================================
@@ -87,8 +66,8 @@ logger = logging.getLogger(
 # CONFIG
 # =========================================================
 
-# Scan setiap 10 menit
-MONITOR_INTERVAL_MINUTES = 10
+# Scan setiap 5 menit
+MONITOR_INTERVAL_MINUTES = 5
 
 # Entry maksimal ditunggu 20 menit
 ENTRY_TIMEOUT_MINUTES = 20
@@ -101,7 +80,9 @@ MONITOR_END_MINUTE = 59
 # ACTIVE SIGNALS
 # =========================================================
 
-_active_signals: List[Dict[str, Any]] = []
+_active_signals: List[
+    Dict[str, Any]
+] = []
 
 
 # =========================================================
@@ -172,7 +153,7 @@ def parse_datetime(
 
 
 # =========================================================
-# NORMALIZE PRICE
+# PRICE FLOAT
 # =========================================================
 
 def price_float(
@@ -198,7 +179,7 @@ def price_float(
 
 
 # =========================================================
-# GET SIGNAL VALUE
+# SIGNAL VALUE
 # =========================================================
 
 def signal_value(
@@ -231,19 +212,8 @@ def signal_value(
 async def add_signal(
     signal,
 ):
-    """
-    Menambahkan signal baru ke monitor.
-
-    Signal yang masuk langsung masuk status:
-
-        WAIT_ENTRY
-    """
 
     async with _monitor_lock:
-
-        # -------------------------------------------------
-        # SIGNAL DATA
-        # -------------------------------------------------
 
         entry = price_float(
             signal_value(
@@ -292,7 +262,7 @@ async def add_signal(
         ):
 
             logger.error(
-                "Signal tidak valid untuk monitor | "
+                "Signal invalid untuk monitor | "
                 "entry=%s sl=%s tp1=%s",
                 entry,
                 sl,
@@ -319,7 +289,7 @@ async def add_signal(
             signal_dt = now_wib()
 
         # -------------------------------------------------
-        # UNIQUE ID
+        # SIGNAL ID
         # -------------------------------------------------
 
         signal_id = signal_value(
@@ -355,7 +325,7 @@ async def add_signal(
                 return False
 
         # -------------------------------------------------
-        # CREATE MONITOR
+        # CREATE
         # -------------------------------------------------
 
         monitor = {
@@ -399,22 +369,25 @@ async def add_signal(
             "tp1_hit_time":
                 None,
 
-            "sl_hit":
-                False,
-
-            "sl_hit_time":
-                None,
-
             "tp2_hit":
                 False,
 
             "tp2_hit_time":
                 None,
 
+            "sl_hit":
+                False,
+
+            "sl_hit_time":
+                None,
+
+            "cancelled":
+                False,
+
             "monitor_finished":
                 False,
 
-            "cancelled":
+            "result_saved":
                 False,
 
             "last_scan":
@@ -422,7 +395,6 @@ async def add_signal(
 
             "last_price":
                 None,
-
         }
 
         _active_signals.append(
@@ -431,65 +403,22 @@ async def add_signal(
 
         logger.info(
             "MONITOR ADD | "
-            "id=%s | "
-            "bias=%s | "
-            "entry=%s | "
-            "sl=%s | "
-            "tp1=%s | "
-            "tp2=%s",
+            "id=%s | bias=%s | "
+            "entry=%s | tp1=%s | "
+            "tp2=%s | sl=%s",
             signal_id,
             bias,
             entry,
-            sl,
             tp1,
             tp2,
+            sl,
         )
 
         return True
 
 
 # =========================================================
-# REMOVE FINISHED SIGNAL
-# =========================================================
-
-def remove_finished():
-
-    global _active_signals
-
-    before = len(
-        _active_signals
-    )
-
-    _active_signals = [
-
-        item
-
-        for item in _active_signals
-
-        if not item.get(
-            "monitor_finished",
-            False
-        )
-
-    ]
-
-    removed = (
-        before
-        - len(
-            _active_signals
-        )
-    )
-
-    if removed:
-
-        logger.info(
-            "Monitor selesai: %s signal",
-            removed,
-        )
-
-
-# =========================================================
-# SEND MESSAGE
+# SEND
 # =========================================================
 
 async def _send(
@@ -500,7 +429,7 @@ async def _send(
     if bot is None:
 
         logger.error(
-            "Bot tidak tersedia untuk monitor."
+            "Bot tidak tersedia."
         )
 
         return
@@ -520,111 +449,87 @@ async def _send(
 
 
 # =========================================================
-# CHECK ENTRY
+# ENTRY TOUCHED
 # =========================================================
 
 def entry_touched(
-    item: Dict[str, Any],
+    item,
     price: float,
-) -> bool:
+):
 
-    entry = item["entry"]
+    if item["bias"] == "BUY":
 
-    bias = item["bias"]
+        return price <= item["entry"]
 
-    # -----------------------------------------------------
-    # BUY
-    # -----------------------------------------------------
+    if item["bias"] == "SELL":
 
-    if bias == "BUY":
-
-        return price <= entry
-
-    # -----------------------------------------------------
-    # SELL
-    # -----------------------------------------------------
-
-    if bias == "SELL":
-
-        return price >= entry
+        return price >= item["entry"]
 
     return False
 
 
 # =========================================================
-# CHECK TP1
+# TP1 TOUCHED
 # =========================================================
 
 def tp1_touched(
-    item: Dict[str, Any],
+    item,
     price: float,
-) -> bool:
+):
 
-    tp1 = item["tp1"]
+    if item["bias"] == "BUY":
 
-    bias = item["bias"]
+        return price >= item["tp1"]
 
-    # BUY -> harga naik ke TP
-    if bias == "BUY":
+    if item["bias"] == "SELL":
 
-        return price >= tp1
-
-    # SELL -> harga turun ke TP
-    if bias == "SELL":
-
-        return price <= tp1
+        return price <= item["tp1"]
 
     return False
 
 
 # =========================================================
-# CHECK SL
+# SL TOUCHED
 # =========================================================
 
 def sl_touched(
-    item: Dict[str, Any],
+    item,
     price: float,
-) -> bool:
+):
 
-    sl = item["sl"]
+    if item["bias"] == "BUY":
 
-    bias = item["bias"]
+        return price <= item["sl"]
 
-    # BUY -> SL di bawah
-    if bias == "BUY":
+    if item["bias"] == "SELL":
 
-        return price <= sl
-
-    # SELL -> SL di atas
-    if bias == "SELL":
-
-        return price >= sl
+        return price >= item["sl"]
 
     return False
 
 
 # =========================================================
-# CHECK TP2
+# TP2 TOUCHED
 # =========================================================
 
 def tp2_touched(
-    item: Dict[str, Any],
+    item,
     price: float,
-) -> bool:
+):
 
-    tp2 = item["tp2"]
+    tp2 = item.get(
+        "tp2"
+    )
 
     if tp2 is None:
 
         return False
 
-    bias = item["bias"]
-
-    if bias == "BUY":
+    if item["bias"] == "BUY":
 
         return price >= tp2
 
-    if bias == "SELL":
+    if item["bias"] == "SELL":
 
         return price <= tp2
 
@@ -632,12 +537,42 @@ def tp2_touched(
 
 
 # =========================================================
-# ENTRY CANCEL
+# SAVE RESULT
+# =========================================================
+
+def save_result(
+    item,
+):
+
+    if item.get(
+        "result_saved"
+    ):
+
+        return
+
+    try:
+
+        save_signal_result(
+            item
+        )
+
+        item["result_saved"] = True
+
+    except Exception:
+
+        logger.exception(
+            "Gagal menyimpan performance | id=%s",
+            item["id"],
+        )
+
+
+# =========================================================
+# CANCEL ENTRY
 # =========================================================
 
 async def cancel_entry(
     bot,
-    item: Dict[str, Any],
+    item,
 ):
 
     item["cancelled"] = True
@@ -646,10 +581,8 @@ async def cancel_entry(
 
     item["status"] = "CANCEL"
 
-    logger.info(
-        "ENTRY CANCEL | id=%s | entry=%s",
-        item["id"],
-        item["entry"],
+    save_result(
+        item
     )
 
     text = (
@@ -670,7 +603,7 @@ async def cancel_entry(
 
 async def handle_entry_hit(
     bot,
-    item: Dict[str, Any],
+    item,
 ):
 
     now = now_wib()
@@ -681,18 +614,14 @@ async def handle_entry_hit(
         now.isoformat()
     )
 
-    item["status"] = "MONITOR_TP1_SL"
-
-    logger.info(
-        "ENTRY HIT | id=%s | price=%s",
-        item["id"],
-        item["last_price"],
+    item["status"] = (
+        "MONITOR_TP1_SL"
     )
 
     text = (
         "🟢 *ENTRY TERSENTUH*\n"
         f"Entry `{item['entry']}`\n"
-        "Monitoring TP1 & SL dimulai."
+        "Monitoring TP1 & SL."
     )
 
     await _send(
@@ -707,7 +636,7 @@ async def handle_entry_hit(
 
 async def handle_tp1_hit(
     bot,
-    item: Dict[str, Any],
+    item,
 ):
 
     now = now_wib()
@@ -720,31 +649,25 @@ async def handle_tp1_hit(
 
     item["status"] = "TP1"
 
-    logger.info(
-        "TP1 HIT | id=%s | tp1=%s",
-        item["id"],
-        item["tp1"],
+    # -----------------------------------------------------
+    # SAVE PERFORMANCE
+    # -----------------------------------------------------
+
+    save_result(
+        item
     )
 
     text = (
         "✅ *TP1 HIT*\n"
-        "Profit +70 Pips\n\n"
-        "TP2 menjadi tanggung jawab masing-masing.\n"
-        "Jika lanjut, gunakan BE / SL Plus."
+        "Profit +70 Pips.\n"
+        "TP2 tanggung jawab masing-masing. "
+        "Gunakan BE / SL Plus jika lanjut."
     )
 
     await _send(
         bot,
         text,
     )
-
-    # -----------------------------------------------------
-    # TP1 sudah selesai untuk monitoring publik.
-    #
-    # TP2 tetap dicari untuk portfolio.
-    # -----------------------------------------------------
-
-    item["status"] = "MONITOR_TP2_PORTFOLIO"
 
 
 # =========================================================
@@ -753,7 +676,7 @@ async def handle_tp1_hit(
 
 async def handle_sl_hit(
     bot,
-    item: Dict[str, Any],
+    item,
 ):
 
     now = now_wib()
@@ -768,10 +691,8 @@ async def handle_sl_hit(
 
     item["monitor_finished"] = True
 
-    logger.info(
-        "SL HIT | id=%s | sl=%s",
-        item["id"],
-        item["sl"],
+    save_result(
+        item
     )
 
     text = (
@@ -790,7 +711,7 @@ async def handle_sl_hit(
 # =========================================================
 
 def handle_tp2_portfolio(
-    item: Dict[str, Any],
+    item,
 ):
 
     if item.get(
@@ -806,36 +727,43 @@ def handle_tp2_portfolio(
     )
 
     logger.info(
-        "TP2 HIT | PORTFOLIO ONLY | "
-        "id=%s | tp2=%s",
+        "TP2 HIT | PORTFOLIO ONLY | id=%s",
         item["id"],
-        item["tp2"],
+    )
+
+    # -----------------------------------------------------
+    # UPDATE PERFORMANCE
+    # -----------------------------------------------------
+
+    save_result(
+        item
     )
 
 
 # =========================================================
-# END AT :59
+# END :59
 # =========================================================
 
 async def finish_at_minute_59(
     bot,
-    item: Dict[str, Any],
+    item,
 ):
-
-    now = now_wib()
 
     item["monitor_finished"] = True
 
     item["status"] = "TIMEOUT"
 
-    logger.info(
-        "MONITOR END :59 | id=%s",
-        item["id"],
+    save_result(
+        item
     )
+
+    signal_time = item[
+        "signal_time"
+    ]
 
     text = (
         f"⏹️ *Monitoring Signal "
-        f"{item['signal_time'].strftime('%H:%M')} "
+        f"{signal_time.strftime('%H:%M')} "
         f"diakhiri.*\n"
         "1 menit lagi signal baru akan keluar.\n"
         "Semoga entry kita segera menyentuh TP."
@@ -848,12 +776,12 @@ async def finish_at_minute_59(
 
 
 # =========================================================
-# PROCESS ONE SIGNAL
+# PROCESS
 # =========================================================
 
 async def process_signal(
     bot,
-    item: Dict[str, Any],
+    item,
     price: float,
 ):
 
@@ -864,12 +792,6 @@ async def process_signal(
     )
 
     item["last_price"] = price
-
-    signal_time = item["signal_time"]
-
-    elapsed = (
-        now - signal_time
-    ).total_seconds() / 60
 
     # =====================================================
     # TP2 PORTFOLIO
@@ -890,7 +812,7 @@ async def process_signal(
             )
 
     # =====================================================
-    # SUDAH FINISH
+    # FINISHED
     # =====================================================
 
     if item.get(
@@ -908,7 +830,7 @@ async def process_signal(
     ):
 
         # -------------------------------------------------
-        # CHECK ENTRY
+        # ENTRY
         # -------------------------------------------------
 
         if entry_touched(
@@ -924,8 +846,13 @@ async def process_signal(
             return
 
         # -------------------------------------------------
-        # 20 MINUTE TIMEOUT
+        # TIMEOUT 20 MENIT
         # -------------------------------------------------
+
+        elapsed = (
+            now
+            - item["signal_time"]
+        ).total_seconds() / 60
 
         if elapsed >= ENTRY_TIMEOUT_MINUTES:
 
@@ -936,16 +863,10 @@ async def process_signal(
 
             return
 
-        # -------------------------------------------------
-        # BELUM KENA
-        # -------------------------------------------------
-
         logger.info(
-            "WAIT ENTRY | "
-            "id=%s | "
-            "price=%s | "
-            "entry=%s | "
-            "elapsed=%.1f min",
+            "WAIT ENTRY | id=%s | "
+            "price=%s | entry=%s | "
+            "elapsed=%.1f",
             item["id"],
             price,
             item["entry"],
@@ -955,11 +876,11 @@ async def process_signal(
         return
 
     # =====================================================
-    # ENTRY SUDAH HIT
+    # SETELAH ENTRY
     # =====================================================
 
     # -----------------------------------------------------
-    # :59 END MONITORING TP1/SL
+    # :59
     # -----------------------------------------------------
 
     if now.minute >= MONITOR_END_MINUTE:
@@ -971,9 +892,19 @@ async def process_signal(
 
         return
 
-    # =====================================================
-    # TP1 / SL
-    # =====================================================
+    # -----------------------------------------------------
+    # TP1 SUDAH HIT
+    #
+    # Setelah TP1:
+    # SL TIDAK BOLEH menjadi LOSS.
+    # TP2 hanya portfolio.
+    # -----------------------------------------------------
+
+    if item.get(
+        "tp1_hit"
+    ):
+
+        return
 
     # -----------------------------------------------------
     # SL
@@ -995,15 +926,9 @@ async def process_signal(
     # TP1
     # -----------------------------------------------------
 
-    if (
-        not item.get(
-            "tp1_hit"
-        )
-        and
-        tp1_touched(
-            item,
-            price,
-        )
+    if tp1_touched(
+        item,
+        price,
     ):
 
         await handle_tp1_hit(
@@ -1013,16 +938,9 @@ async def process_signal(
 
         return
 
-    # -----------------------------------------------------
-    # BELUM KENA
-    # -----------------------------------------------------
-
     logger.info(
-        "MONITOR TP1/SL | "
-        "id=%s | "
-        "price=%s | "
-        "tp1=%s | "
-        "sl=%s",
+        "MONITOR | id=%s | "
+        "price=%s | tp1=%s | sl=%s",
         item["id"],
         price,
         item["tp1"],
@@ -1042,9 +960,9 @@ async def scan(
 
         return
 
-    # =====================================================
+    # -----------------------------------------------------
     # GET PRICE
-    # =====================================================
+    # -----------------------------------------------------
 
     price = await asyncio.to_thread(
         get_price
@@ -1053,7 +971,7 @@ async def scan(
     if price is None:
 
         logger.warning(
-            "Monitor tidak mendapatkan harga."
+            "Monitor gagal mendapatkan harga."
         )
 
         return
@@ -1066,9 +984,9 @@ async def scan(
         ),
     )
 
-    # =====================================================
+    # -----------------------------------------------------
     # PROCESS
-    # =====================================================
+    # -----------------------------------------------------
 
     async with _monitor_lock:
 
@@ -1088,16 +1006,54 @@ async def scan(
 
                 logger.exception(
                     "Monitor error | id=%s",
-                    item.get(
-                        "id"
-                    ),
+                    item.get("id"),
                 )
 
         # -------------------------------------------------
-        # REMOVE FINISHED
+        # REMOVE
         # -------------------------------------------------
 
         remove_finished()
+
+
+# =========================================================
+# REMOVE FINISHED
+# =========================================================
+
+def remove_finished():
+
+    global _active_signals
+
+    before = len(
+        _active_signals
+    )
+
+    _active_signals = [
+
+        item
+
+        for item in _active_signals
+
+        if not item.get(
+            "monitor_finished",
+            False,
+        )
+
+    ]
+
+    removed = (
+        before
+        - len(
+            _active_signals
+        )
+    )
+
+    if removed:
+
+        logger.info(
+            "Monitor selesai: %s signal",
+            removed,
+        )
 
 
 # =========================================================
@@ -1117,18 +1073,15 @@ async def monitor_loop(
     )
 
     logger.info(
-        "Scan interval : %s menit",
-        MONITOR_INTERVAL_MINUTES,
+        "Scan interval : 5 menit"
     )
 
     logger.info(
-        "Entry timeout : %s menit",
-        ENTRY_TIMEOUT_MINUTES,
+        "Entry timeout : 20 menit"
     )
 
     logger.info(
-        "TP1 / SL end  : menit :%s",
-        MONITOR_END_MINUTE,
+        "TP1 / SL end  : menit :59"
     )
 
     logger.info(
@@ -1161,18 +1114,13 @@ async def monitor_loop(
                 "Monitor loop error."
             )
 
-        # =================================================
-        # WAIT 10 MINUTES
-        # =================================================
-
         await asyncio.sleep(
-            MONITOR_INTERVAL_MINUTES
-            * 60
+            MONITOR_INTERVAL_MINUTES * 60
         )
 
 
 # =========================================================
-# GET ACTIVE
+# ACTIVE MONITORS
 # =========================================================
 
 def get_active_monitors():
@@ -1180,36 +1128,3 @@ def get_active_monitors():
     return list(
         _active_signals
     )
-
-
-# =========================================================
-# GET PORTFOLIO DATA
-# =========================================================
-
-def get_finished_data():
-
-    return [
-
-        item
-
-        for item in _active_signals
-
-        if (
-            item.get(
-                "tp1_hit"
-            )
-            or
-            item.get(
-                "sl_hit"
-            )
-            or
-            item.get(
-                "tp2_hit"
-            )
-            or
-            item.get(
-                "cancelled"
-            )
-        )
-
-    ]
