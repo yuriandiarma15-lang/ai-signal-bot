@@ -7,22 +7,23 @@ Telegram Signal Sender
 Fungsi:
 - Mengambil seluruh member aktif
 - Mengirim signal ke masing-masing member
-- Menerima:
-    1. TradeSignal object
-    2. string
-- Jika TradeSignal:
-    -> gunakan format_signal_message()
-      dari signal_builder.py
+- TradeSignal -> signal ringkas + tombol ANALISA LENGKAP
+- String -> dikirim sebagai text biasa
 
-PENTING:
-Jangan melakukan formatting ulang di sini.
-Format Telegram dikontrol oleh signal_builder.py.
+Tombol:
+    🔎 ANALISA LENGKAP
+
+Callback:
+    detail_signal:<signal_id>
 """
 
 import asyncio
 import logging
 
 from typing import Any, Dict
+
+from aiogram.types import InlineKeyboardMarkup
+from aiogram.types import InlineKeyboardButton
 
 
 from services.membership import (
@@ -58,10 +59,11 @@ PARSE_MODE = "Markdown"
 # =========================================================
 
 def format_trade_signal(
-    signal
+    signal,
 ) -> str:
+
     """
-    Compatibility wrapper.
+    Format signal utama.
 
     TradeSignal:
         menggunakan format_signal_message()
@@ -116,25 +118,84 @@ def format_trade_signal(
 
 
 # =========================================================
+# SIGNAL BUTTON
+# =========================================================
+
+def build_signal_keyboard(
+    signal,
+):
+
+    """
+    Membuat satu tombol:
+
+        🔎 ANALISA LENGKAP
+
+    Callback:
+        detail_signal:<signal_id>
+    """
+
+    signal_id = getattr(
+        signal,
+        "signal_id",
+        None,
+    )
+
+    if not signal_id:
+
+        logger.warning(
+            "Signal tidak memiliki signal_id. "
+            "Tombol detail tidak dibuat."
+        )
+
+        return None
+
+
+    keyboard = InlineKeyboardMarkup(
+        inline_keyboard=[
+
+            [
+
+                InlineKeyboardButton(
+
+                    text="🔎 ANALISA LENGKAP",
+
+                    callback_data=(
+                        f"detail_signal:{signal_id}"
+                    ),
+
+                )
+
+            ]
+
+        ]
+
+    )
+
+    return keyboard
+
+
+# =========================================================
 # SEND SIGNAL TO MEMBERS
 # =========================================================
 
 async def send_signal_to_members(
     bot,
-    signal_text,
+    signal,
 ) -> Dict[str, Any]:
 
     """
     Kirim signal ke seluruh member aktif.
 
-    signal_text boleh berupa:
+    signal boleh:
 
     - str
-    - TradeSignal object
+    - TradeSignal
 
-    Jika TradeSignal object:
-        otomatis menggunakan format_signal_message()
-        dari services.signal_builder.
+    Jika TradeSignal:
+
+        Signal utama
+        +
+        tombol ANALISA LENGKAP
     """
 
     # =====================================================
@@ -155,13 +216,23 @@ async def send_signal_to_members(
 
 
     # =====================================================
-    # CONVERT SIGNAL
+    # CEK TRADE SIGNAL
+    # =====================================================
+
+    is_trade_signal = isinstance(
+        signal,
+        TradeSignal,
+    )
+
+
+    # =====================================================
+    # FORMAT SIGNAL
     # =====================================================
 
     try:
 
         signal_text = format_trade_signal(
-            signal_text
+            signal
         )
 
     except Exception:
@@ -209,6 +280,19 @@ async def send_signal_to_members(
             "failed": 0,
             "total": 0,
         }
+
+
+    # =====================================================
+    # KEYBOARD
+    # =====================================================
+
+    keyboard = None
+
+    if is_trade_signal:
+
+        keyboard = build_signal_keyboard(
+            signal
+        )
 
 
     # =====================================================
@@ -327,6 +411,8 @@ async def send_signal_to_members(
                 parse_mode=PARSE_MODE,
 
                 disable_web_page_preview=True,
+
+                reply_markup=keyboard,
 
             )
 
