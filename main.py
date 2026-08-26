@@ -11,7 +11,6 @@ from handlers.signal import router as signal_router
 from handlers.admin import router as admin_router
 
 from services.scheduler import signal_scheduler
-from services.monitor import monitor_loop
 
 
 # =========================================================
@@ -91,6 +90,16 @@ async def main():
 
     # =====================================================
     # SIGNAL SCHEDULER
+    #
+    # HANYA SIGNAL SCHEDULER
+    #
+    # Tidak menjalankan:
+    # - Entry monitor
+    # - Entry timeout 20 menit
+    # - TP1 monitor
+    # - TP2 monitor
+    # - SL monitor
+    # - Performance monitor
     # =====================================================
 
     signal_task = asyncio.create_task(
@@ -103,17 +112,44 @@ async def main():
     )
 
     # =====================================================
-    # MONITOR
+    # MONITOR STATUS
     # =====================================================
 
-    monitor_task = asyncio.create_task(
-        monitor_loop(bot),
-        name="signal_monitor",
+    logger.info(
+        "⛔ SIGNAL MONITOR : DISABLED"
     )
 
     logger.info(
-        "📊 SIGNAL MONITOR STARTED"
+        "⛔ ENTRY MONITOR  : DISABLED"
     )
+
+    logger.info(
+        "⛔ ENTRY TIMEOUT  : DISABLED"
+    )
+
+    logger.info(
+        "⛔ SL MONITOR     : DISABLED"
+    )
+
+    logger.info(
+        "⛔ TP1 MONITOR    : DISABLED"
+    )
+
+    logger.info(
+        "⛔ TP2 MONITOR    : DISABLED"
+    )
+
+    logger.info(
+        "⛔ PERFORMANCE    : DISABLED"
+    )
+
+    logger.info(
+        "⛔ 04:00 CHANNEL  : DISABLED"
+    )
+
+    # =====================================================
+    # ENGINE STATUS
+    # =====================================================
 
     logger.info(
         "📈 MARKET ANALYSIS ENGINE ACTIVE"
@@ -124,7 +160,11 @@ async def main():
     )
 
     logger.info(
-        "🔎 MONITOR SCAN EVERY 5 MINUTES"
+        "📡 TELEGRAM SIGNAL DELIVERY ACTIVE"
+    )
+
+    logger.info(
+        "📊 DETAIL ANALYSIS AVAILABLE"
     )
 
     logger.info(
@@ -175,27 +215,19 @@ async def main():
 
             pass
 
-        # =================================================
-        # STOP MONITOR
-        # =================================================
+        except Exception:
 
-        logger.info(
-            "Menghentikan signal monitor..."
-        )
-
-        monitor_task.cancel()
-
-        try:
-
-            await monitor_task
-
-        except asyncio.CancelledError:
-
-            pass
+            logger.exception(
+                "Error saat menghentikan signal scheduler."
+            )
 
         # =================================================
         # CLOSE BOT
         # =================================================
+
+        logger.info(
+            "Menutup koneksi Telegram..."
+        )
 
         await bot.session.close()
 
