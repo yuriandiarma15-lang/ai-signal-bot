@@ -25,14 +25,10 @@ MONITOR:
 - Menggunakan candle 5 menit
 - HIGH / LOW digunakan untuk mendeteksi TP1 / SL
 - Entry maksimal ditunggu 20 menit
-- TP1 = PERFORMANCE
-- SL  = PERFORMANCE
-- TP2 = tanggung jawab masing-masing user
-- TP2 tidak dihitung sebagai hasil Performance
-- Setelah TP1 tercapai, hasil Performance FINAL = TP1
-- SL setelah TP1 tidak mengubah hasil menjadi SL
-- Pending entry expired setelah 20 menit
-- Monitoring publik selesai setelah TP1 / SL / CANCEL
+- TP1 = hasil Performance
+- SL  = hasil Performance
+- TP2 = internal / tanggung jawab masing-masing user
+- TP2 tidak dikirim sebagai hasil Performance
 """
 
 import asyncio
@@ -41,11 +37,7 @@ import logging
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 
-
-from config.settings import (
-    TIMEZONE,
-    SMC_PENDING_TIMEOUT_MINUTES,
-)
+from config.settings import TIMEZONE
 
 from services.market import (
     get_price,
@@ -91,17 +83,12 @@ logger = logging.getLogger(
 # CONFIG
 # =========================================================
 
-# Scan setiap 5 menit
 MONITOR_INTERVAL_MINUTES = 5
 
+ENTRY_TIMEOUT_MINUTES = 20
 
-# Pending entry timeout
-ENTRY_TIMEOUT_MINUTES = (
-    SMC_PENDING_TIMEOUT_MINUTES
-)
+MONITOR_END_MINUTE = 59
 
-
-# Candle monitor
 MONITOR_CANDLE_INTERVAL = "5min"
 
 
@@ -141,7 +128,6 @@ def parse_datetime(
 ) -> Optional[datetime]:
 
     if not value:
-
         return None
 
     if isinstance(
@@ -155,23 +141,8 @@ def parse_datetime(
 
         try:
 
-            text = str(
-                value
-            ).strip()
-
-            # ---------------------------------------------
-            # Support trailing Z
-            # ---------------------------------------------
-
-            if text.endswith("Z"):
-
-                text = (
-                    text[:-1]
-                    + "+00:00"
-                )
-
             dt = datetime.fromisoformat(
-                text
+                str(value)
             )
 
         except (
@@ -181,21 +152,11 @@ def parse_datetime(
 
             return None
 
-    # =====================================================
-    # TIMEZONE
-    # =====================================================
-
     if dt.tzinfo is None:
 
-        try:
-
-            dt = dt.replace(
-                tzinfo=WIB
-            )
-
-        except Exception:
-
-            pass
+        dt = dt.replace(
+            tzinfo=WIB
+        )
 
     else:
 
@@ -217,7 +178,6 @@ def price_float(
     try:
 
         if value is None:
-
             return None
 
         return float(
@@ -260,33 +220,41 @@ def signal_value(
 
 
 # =========================================================
-# SIGNAL ID
+# NORMALIZE BIAS
 # =========================================================
 
-def build_signal_id(
-    signal,
-    signal_dt: datetime,
-    bias: str,
+def normalize_bias(
+    value: Any,
 ) -> str:
 
-    signal_id = signal_value(
-        signal,
-        "signal_id",
-    )
+    bias = str(
+        value or ""
+    ).strip().upper()
 
-    if signal_id:
+    # ---------------------------------------------
+    # Format dari signal builder
+    # ---------------------------------------------
 
-        return str(
-            signal_id
-        )
+    if bias == "BULLISH":
 
-    return (
-        signal_dt.strftime(
-            "%Y%m%d%H%M"
-        )
-        + "_"
-        + bias
-    )
+        return "BUY"
+
+    if bias == "BEARISH":
+
+        return "SELL"
+
+    # ---------------------------------------------
+    # Format standar
+    # ---------------------------------------------
+
+    if bias in (
+        "BUY",
+        "SELL",
+    ):
+
+        return bias
+
+    return bias
 
 
 # =========================================================
@@ -331,14 +299,35 @@ async def add_signal(
             )
         )
 
-        bias = str(
-            signal_value(
-                signal,
-                "bias",
-                "",
-            )
-        ).upper().strip()
+        raw_bias = signal_value(
+            signal,
+            "bias",
+            "",
+        )
 
+        bias = normalize_bias(
+            raw_bias
+        )
+
+        # =================================================
+        # LOG RAW DATA
+        # =================================================
+
+        logger.info(
+            "MONITOR PREPARE | "
+            "raw_bias=%s | "
+            "normalized_bias=%s | "
+            "entry=%s | "
+            "sl=%s | "
+            "tp1=%s | "
+            "tp2=%s",
+            raw_bias,
+            bias,
+            entry,
+            sl,
+            tp1,
+            tp2,
+        )
 
         # =================================================
         # VALIDATION
@@ -360,19 +349,19 @@ async def add_signal(
 
             return False
 
-
         if bias not in (
             "BUY",
             "SELL",
         ):
 
             logger.error(
-                "Bias signal tidak valid: %s",
+                "Bias signal tidak valid | "
+                "raw=%s | normalized=%s",
+                raw_bias,
                 bias,
             )
 
             return False
-
 
         # =================================================
         # SIGNAL TIME
@@ -391,17 +380,24 @@ async def add_signal(
 
             signal_dt = now_wib()
 
-
         # =================================================
         # SIGNAL ID
         # =================================================
 
-        signal_id = build_signal_id(
+        signal_id = signal_value(
             signal,
-            signal_dt,
-            bias,
+            "signal_id",
         )
 
+        if signal_id is None:
+
+            signal_id = (
+                signal_dt.strftime(
+                    "%Y%m%d%H%M"
+                )
+                + "_"
+                + bias
+            )
 
         # =================================================
         # DUPLICATE
@@ -419,7 +415,6 @@ async def add_signal(
                 )
 
                 return False
-
 
         # =================================================
         # CREATE MONITOR
@@ -530,37 +525,60 @@ async def add_signal(
 
             "performance_time":
                 None,
-
-            # ---------------------------------------------
-            # CTA
-            # ---------------------------------------------
-
-            "cta_sent":
-                False,
         }
-
 
         _active_signals.append(
             monitor
         )
 
+        logger.info(
+            "================================================"
+        )
 
         logger.info(
-            "MONITOR ADD | "
-            "id=%s | "
-            "bias=%s | "
-            "entry=%s | "
-            "sl=%s | "
-            "tp1=%s | "
-            "tp2=%s",
+            "MONITOR ADD SUCCESS"
+        )
+
+        logger.info(
+            "ID       : %s",
             signal_id,
+        )
+
+        logger.info(
+            "BIAS     : %s",
             bias,
+        )
+
+        logger.info(
+            "ENTRY    : %s",
             entry,
+        )
+
+        logger.info(
+            "SL       : %s",
             sl,
+        )
+
+        logger.info(
+            "TP1      : %s",
             tp1,
+        )
+
+        logger.info(
+            "TP2      : %s",
             tp2,
         )
 
+        logger.info(
+            "ACTIVE   : %s",
+            len(
+                _active_signals
+            ),
+        )
+
+        logger.info(
+            "================================================"
+        )
 
         return True
 
@@ -606,7 +624,7 @@ def remove_finished():
 
 
 # =========================================================
-# SEND MESSAGE
+# SEND
 # =========================================================
 
 async def _send(
@@ -620,18 +638,14 @@ async def _send(
             "Bot tidak tersedia."
         )
 
-        return False
+        return
 
     try:
 
-        result = (
-            await send_signal_to_members(
-                bot,
-                text,
-            )
+        await send_signal_to_members(
+            bot,
+            text,
         )
-
-        return result
 
     except Exception:
 
@@ -639,7 +653,33 @@ async def _send(
             "Gagal mengirim monitor message."
         )
 
-        return False
+
+# =========================================================
+# ENTRY TOUCHED
+# =========================================================
+
+def entry_touched(
+    item: Dict[str, Any],
+    price: float,
+) -> bool:
+
+    entry = item[
+        "entry"
+    ]
+
+    bias = item[
+        "bias"
+    ]
+
+    if bias == "BUY":
+
+        return price <= entry
+
+    if bias == "SELL":
+
+        return price >= entry
+
+    return False
 
 
 # =========================================================
@@ -667,10 +707,7 @@ def entry_touched_by_candle(
         )
     )
 
-    if (
-        high is None
-        or low is None
-    ):
+    if high is None or low is None:
 
         return False
 
@@ -704,10 +741,7 @@ def tp1_touched_by_candle(
         )
     )
 
-    if (
-        high is None
-        or low is None
-    ):
+    if high is None or low is None:
 
         return False
 
@@ -751,10 +785,7 @@ def sl_touched_by_candle(
         )
     )
 
-    if (
-        high is None
-        or low is None
-    ):
+    if high is None or low is None:
 
         return False
 
@@ -802,10 +833,7 @@ def tp2_touched_by_candle(
         )
     )
 
-    if (
-        high is None
-        or low is None
-    ):
+    if high is None or low is None:
 
         return False
 
@@ -853,27 +881,20 @@ async def cancel_entry(
         "performance_time"
     ] = now_wib().isoformat()
 
-
     logger.info(
         "ENTRY CANCEL | "
         "id=%s | "
-        "entry=%s | "
-        "timeout=%s min",
+        "entry=%s",
         item["id"],
         item["entry"],
-        ENTRY_TIMEOUT_MINUTES,
     )
-
 
     text = (
         "❌ *SIGNAL CANCEL*\n"
-        "━━━━━━━━━━━━━━━━━━\n"
         f"Entry `{item['entry']}` tidak tersentuh "
         f"dalam {ENTRY_TIMEOUT_MINUTES} menit.\n\n"
-        "Signal tidak masuk posisi.\n"
-        "Tidak ada hasil Performance."
+        "Signal tidak masuk posisi."
     )
-
 
     await _send(
         bot,
@@ -904,7 +925,6 @@ async def handle_entry_hit(
         "status"
     ] = "MONITOR_TP1_SL"
 
-
     logger.info(
         "ENTRY HIT | "
         "id=%s | "
@@ -913,15 +933,12 @@ async def handle_entry_hit(
         item["entry"],
     )
 
-
     text = (
         "🟢 *ENTRY TERSENTUH*\n"
-        "━━━━━━━━━━━━━━━━━━\n"
         f"Entry `{item['entry']}`\n\n"
         "Posisi mulai dimonitor.\n"
         "🎯 TP1 dan 🛑 SL sedang dipantau."
     )
-
 
     await _send(
         bot,
@@ -952,10 +969,6 @@ async def handle_tp1_hit(
         "status"
     ] = "TP1"
 
-    # =====================================================
-    # PERFORMANCE FINAL
-    # =====================================================
-
     item[
         "performance_result"
     ] = "TP1"
@@ -964,54 +977,34 @@ async def handle_tp1_hit(
         "performance_time"
     ] = now.isoformat()
 
-
     logger.info(
         "TP1 HIT | "
         "id=%s | "
-        "tp1=%s | "
-        "PERFORMANCE=TP1",
+        "tp1=%s",
         item["id"],
         item["tp1"],
     )
 
-
     text = (
         "✅ *TP1 HIT*\n"
-        "━━━━━━━━━━━━━━━━━━\n"
-        "🎯 *PROFIT +70 PIPS*\n\n"
-        "TP1 sudah tercapai.\n\n"
+        "Profit +70 Pips\n\n"
+        "🎯 TP1 sudah tercapai.\n\n"
         "⚠️ *TP2 menjadi tanggung jawab "
-        "masing-masing user.*\n\n"
-        "Jika posisi masih dilanjutkan,\n"
+        "masing-masing user.*\n"
+        "Jika posisi masih dilanjutkan, "
         "silakan amankan posisi menggunakan "
         "BE / SL Plus sesuai manajemen risiko "
         "masing-masing."
     )
-
 
     await _send(
         bot,
         text,
     )
 
-
-    # =====================================================
-    # PUBLIC MONITOR FINISHED
-    # =====================================================
-    #
-    # Setelah TP1:
-    #
-    # Performance FINAL = TP1
-    #
-    # Jika harga kemudian terkena SL,
-    # Performance TIDAK berubah menjadi SL.
-    #
-    # TP2 hanya internal.
-    # =====================================================
-
     item[
-        "monitor_finished"
-    ] = True
+        "status"
+    ] = "MONITOR_TP2"
 
 
 # =========================================================
@@ -1037,11 +1030,6 @@ async def handle_sl_hit(
         "status"
     ] = "SL"
 
-
-    # =====================================================
-    # PERFORMANCE FINAL
-    # =====================================================
-
     item[
         "performance_result"
     ] = "SL"
@@ -1050,30 +1038,23 @@ async def handle_sl_hit(
         "performance_time"
     ] = now.isoformat()
 
-
     item[
         "monitor_finished"
     ] = True
 
-
     logger.info(
         "SL HIT | "
         "id=%s | "
-        "sl=%s | "
-        "PERFORMANCE=SL",
+        "sl=%s",
         item["id"],
         item["sl"],
     )
 
-
     text = (
         "❌ *SL HIT*\n"
-        "━━━━━━━━━━━━━━━━━━\n"
         "Loss sesuai risk management.\n\n"
-        "🛑 *-50 PIPS*\n\n"
         "Monitoring signal selesai."
     )
-
 
     await _send(
         bot,
@@ -1095,7 +1076,6 @@ def handle_tp2_portfolio(
 
         return
 
-
     item[
         "tp2_hit"
     ] = True
@@ -1104,61 +1084,70 @@ def handle_tp2_portfolio(
         "tp2_hit_time"
     ] = now_wib().isoformat()
 
-
     logger.info(
         "TP2 HIT | "
         "PORTFOLIO ONLY | "
         "id=%s | "
-        "tp2=%s | "
-        "NOT PERFORMANCE",
+        "tp2=%s",
         item["id"],
         item["tp2"],
     )
 
 
 # =========================================================
-# ENTRY TIMEOUT CHECK
+# END :59
 # =========================================================
 
-async def check_entry_timeout(
+async def finish_at_minute_59(
     bot,
     item: Dict[str, Any],
 ):
 
-    if item.get(
-        "entry_hit"
-    ):
-
-        return False
-
-
-    if item.get(
-        "monitor_finished"
-    ):
-
-        return False
-
-
     now = now_wib()
 
+    item[
+        "monitor_finished"
+    ] = True
 
-    elapsed = (
-        now
-        - item["signal_time"]
-    ).total_seconds() / 60
+    item[
+        "status"
+    ] = "TIMEOUT"
 
+    if not item.get(
+        "performance_result"
+    ):
 
-    if elapsed >= ENTRY_TIMEOUT_MINUTES:
+        item[
+            "performance_result"
+        ] = "TIMEOUT"
 
-        await cancel_entry(
-            bot,
-            item,
-        )
+        item[
+            "performance_time"
+        ] = now.isoformat()
 
-        return True
+    logger.info(
+        "MONITOR END :59 | "
+        "id=%s | "
+        "result=%s",
+        item["id"],
+        item.get(
+            "performance_result"
+        ),
+    )
 
+    text = (
+        f"⏹️ *Monitoring Signal "
+        f"{item['signal_time'].strftime('%H:%M')} "
+        f"diakhiri.*\n\n"
+        "1 menit lagi signal baru akan keluar.\n"
+        "Semoga entry kita saat ini "
+        "segera menyentuh TP."
+    )
 
-    return False
+    await _send(
+        bot,
+        text,
+    )
 
 
 # =========================================================
@@ -1173,16 +1162,13 @@ async def process_candle(
 
     now = now_wib()
 
-
     item[
         "last_scan"
     ] = now.isoformat()
 
-
     candle_time = candle.get(
         "datetime"
     )
-
 
     item[
         "last_candle_time"
@@ -1190,9 +1176,8 @@ async def process_candle(
         candle_time
     )
 
-
     # =====================================================
-    # CANDLE VALUES
+    # CANDLE
     # =====================================================
 
     high = price_float(
@@ -1213,7 +1198,6 @@ async def process_candle(
         )
     )
 
-
     if (
         high is None
         or low is None
@@ -1227,11 +1211,32 @@ async def process_candle(
 
         return
 
-
     item[
         "last_price"
     ] = close
 
+    # =====================================================
+    # TP2 INTERNAL
+    # =====================================================
+
+    if (
+        item.get(
+            "entry_hit"
+        )
+        and
+        not item.get(
+            "tp2_hit"
+        )
+    ):
+
+        if tp2_touched_by_candle(
+            item,
+            candle,
+        ):
+
+            handle_tp2_portfolio(
+                item
+            )
 
     # =====================================================
     # FINISHED
@@ -1243,7 +1248,6 @@ async def process_candle(
 
         return
 
-
     # =====================================================
     # ENTRY BELUM HIT
     # =====================================================
@@ -1251,10 +1255,6 @@ async def process_candle(
     if not item.get(
         "entry_hit"
     ):
-
-        # -------------------------------------------------
-        # ENTRY TOUCH
-        # -------------------------------------------------
 
         if entry_touched_by_candle(
             item,
@@ -1268,29 +1268,19 @@ async def process_candle(
 
             return
 
-
-        # -------------------------------------------------
-        # TIMEOUT
-        # -------------------------------------------------
-
-        await check_entry_timeout(
-            bot,
-            item,
-        )
-
-
-        if item.get(
-            "monitor_finished"
-        ):
-
-            return
-
-
         elapsed = (
             now
             - item["signal_time"]
         ).total_seconds() / 60
 
+        if elapsed >= ENTRY_TIMEOUT_MINUTES:
+
+            await cancel_entry(
+                bot,
+                item,
+            )
+
+            return
 
         logger.info(
             "WAIT ENTRY | "
@@ -1308,125 +1298,106 @@ async def process_candle(
             elapsed,
         )
 
-
         return
-
 
     # =====================================================
     # ENTRY SUDAH HIT
     # =====================================================
 
-    # -----------------------------------------------------
-    # TP1
-    # -----------------------------------------------------
+    if now.minute >= MONITOR_END_MINUTE:
 
-    tp1_hit = (
-        tp1_touched_by_candle(
+        await finish_at_minute_59(
+            bot,
             item,
-            candle,
         )
-    )
 
-
-    # -----------------------------------------------------
-    # SL
-    # -----------------------------------------------------
-
-    sl_hit = (
-        sl_touched_by_candle(
-            item,
-            candle,
-        )
-    )
-
+        return
 
     # =====================================================
-    # TP1 + SL SAME CANDLE
-    # =====================================================
-    #
-    # Karena hanya menggunakan OHLC candle,
-    # urutan tidak dapat diketahui.
-    #
-    # Conservative:
-    # SL diprioritaskan.
+    # TP1 / SL
     # =====================================================
 
-    if (
-        tp1_hit
-        and
-        sl_hit
+    if not item.get(
+        "tp1_hit"
     ):
 
-        logger.warning(
-            "TP1 + SL SAMA-SAMA TERSENTUH "
-            "DALAM CANDLE YANG SAMA | "
-            "id=%s | "
-            "SL DIPRIORITASKAN",
+        sl_hit = sl_touched_by_candle(
+            item,
+            candle,
+        )
+
+        tp1_hit = tp1_touched_by_candle(
+            item,
+            candle,
+        )
+
+        # -------------------------------------------------
+        # BOTH HIT
+        # -------------------------------------------------
+
+        if (
+            sl_hit
+            and
+            tp1_hit
+        ):
+
+            logger.warning(
+                "TP1 + SL SAMA-SAMA tersentuh "
+                "dalam candle yang sama | "
+                "id=%s | SL diprioritaskan.",
+                item["id"],
+            )
+
+            await handle_sl_hit(
+                bot,
+                item,
+            )
+
+            return
+
+        # -------------------------------------------------
+        # SL
+        # -------------------------------------------------
+
+        if sl_hit:
+
+            await handle_sl_hit(
+                bot,
+                item,
+            )
+
+            return
+
+        # -------------------------------------------------
+        # TP1
+        # -------------------------------------------------
+
+        if tp1_hit:
+
+            await handle_tp1_hit(
+                bot,
+                item,
+            )
+
+            return
+
+    # =====================================================
+    # SETELAH TP1
+    # =====================================================
+
+    if item.get(
+        "tp1_hit"
+    ):
+
+        logger.info(
+            "TP1 SUDAH HIT | "
+            "Monitoring publik selesai | "
+            "TP2 internal | "
+            "id=%s",
             item["id"],
         )
 
-
-        await handle_sl_hit(
-            bot,
-            item,
-        )
-
-
         return
-
-
-    # =====================================================
-    # SL
-    # =====================================================
-
-    if sl_hit:
-
-        await handle_sl_hit(
-            bot,
-            item,
-        )
-
-        return
-
-
-    # =====================================================
-    # TP1
-    # =====================================================
-
-    if tp1_hit:
-
-        await handle_tp1_hit(
-            bot,
-            item,
-        )
-
-        return
-
-
-    # =====================================================
-    # TP2 INTERNAL
-    # =====================================================
-    #
-    # Hanya dicatat internal.
-    #
-    # Tidak dikirim sebagai Performance.
-    # =====================================================
-
-    if (
-        not item.get(
-            "tp2_hit"
-        )
-    ):
-
-        if tp2_touched_by_candle(
-            item,
-            candle,
-        ):
-
-            handle_tp2_portfolio(
-                item
-            )
-
 
     # =====================================================
     # LOG
@@ -1439,15 +1410,13 @@ async def process_candle(
         "high=%s | "
         "low=%s | "
         "tp1=%s | "
-        "sl=%s | "
-        "tp2=%s",
+        "sl=%s",
         item["id"],
         candle_time,
         high,
         low,
         item["tp1"],
         item["sl"],
-        item["tp2"],
     )
 
 
@@ -1472,20 +1441,11 @@ def get_monitor_candle():
 
         return None
 
-
     if not candles:
 
         return None
 
-
-    # =====================================================
-    # Ambil candle terbaru
-    # =====================================================
-
-    candle = candles[-1]
-
-
-    return candle
+    return candles[-1]
 
 
 # =========================================================
@@ -1500,15 +1460,13 @@ async def scan(
 
         return
 
-
     # =====================================================
-    # GET CANDLE
+    # CANDLE
     # =====================================================
 
     candle = await asyncio.to_thread(
         get_monitor_candle
     )
-
 
     if candle is None:
 
@@ -1519,15 +1477,13 @@ async def scan(
 
         return
 
-
     # =====================================================
-    # GET PRICE
+    # PRICE
     # =====================================================
 
     price = await asyncio.to_thread(
         get_price
     )
-
 
     if price is None:
 
@@ -1537,7 +1493,6 @@ async def scan(
             )
         )
 
-
     if price is None:
 
         logger.warning(
@@ -1545,7 +1500,6 @@ async def scan(
         )
 
         return
-
 
     # =====================================================
     # LOG
@@ -1572,7 +1526,6 @@ async def scan(
             _active_signals
         ),
     )
-
 
     # =====================================================
     # PROCESS
@@ -1601,11 +1554,6 @@ async def scan(
                         "id"
                     ),
                 )
-
-
-        # =================================================
-        # REMOVE FINISHED
-        # =================================================
 
         remove_finished()
 
@@ -1657,7 +1605,6 @@ async def monitor_loop(
         "=========================================="
     )
 
-
     while True:
 
         try:
@@ -1665,7 +1612,6 @@ async def monitor_loop(
             await scan(
                 bot
             )
-
 
         except asyncio.CancelledError:
 
@@ -1675,17 +1621,11 @@ async def monitor_loop(
 
             raise
 
-
         except Exception:
 
             logger.exception(
                 "Monitor loop error."
             )
-
-
-        # =================================================
-        # WAIT
-        # =================================================
 
         await asyncio.sleep(
             MONITOR_INTERVAL_MINUTES
@@ -1738,28 +1678,6 @@ def get_finished_data():
             item.get(
                 "cancelled"
             )
-        )
-
-    ]
-
-
-# =========================================================
-# CLEAR FINISHED
-# =========================================================
-
-def clear_finished():
-
-    global _active_signals
-
-    _active_signals = [
-
-        item
-
-        for item in _active_signals
-
-        if not item.get(
-            "monitor_finished",
-            False,
         )
 
     ]
