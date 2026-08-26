@@ -1,8 +1,5 @@
 """
-services/scheduler.py
-
 XAU AI SIGNAL SCHEDULER
-=======================
 
 JADWAL SIGNAL:
 
@@ -20,30 +17,20 @@ MINGGU
 CLOSED
 
 
-ALUR:
+TELEGRAM:
+REALTIME
 
-SCHEDULER
-    |
-    v
-BUILD SIGNAL
-    |
-    v
-TELEGRAM REALTIME
-    |
-    v
-MONITOR
-    |
-    +--> WAIT ENTRY max 20 menit
-    |
-    +--> ENTRY HIT
-    |       |
-    |       +--> TP1
-    |       |
-    |       +--> SL
-    |
-    +--> ENTRY tidak kena
-            |
-            +--> CANCEL
+MONITOR:
+SETIAP 5 MENIT
+
+ENTRY:
+MAKSIMAL 20 MENIT
+
+PERFORMANCE:
+TP1 / SL
+
+TP2:
+USER RESPONSIBILITY
 
 
 STRATEGY:
@@ -56,30 +43,6 @@ FVG
 Liquidity
 BOS / CHoCH
 Risk Management
-
-
-CATATAN:
-
-Website SUDAH TIDAK DIGUNAKAN.
-
-Telegram:
-    REALTIME
-
-Monitor:
-    Scan setiap 5 menit
-
-Entry:
-    Maksimal ditunggu 20 menit
-
-TP1:
-    Hasil utama Performance
-
-SL:
-    Hasil utama Performance
-
-TP2:
-    Tidak dikirim sebagai hasil monitoring publik.
-    Menjadi tanggung jawab masing-masing user.
 """
 
 import asyncio
@@ -89,25 +52,13 @@ from datetime import datetime, timedelta
 
 import pytz
 
+from config.settings import TIMEZONE
 
-from config.settings import (
-    TIMEZONE,
-)
+from services.signal_builder import build_signal
 
+from services.sender import send_signal_to_members
 
-from services.signal_builder import (
-    build_signal,
-)
-
-
-from services.sender import (
-    send_signal_to_members,
-)
-
-
-from services.monitor import (
-    add_signal,
-)
+from services.monitor import add_signal
 
 
 # =========================================================
@@ -146,9 +97,7 @@ _last_signal_time = None
 # TRADING OPEN
 # =========================================================
 
-def trading_open(
-    dt=None,
-):
+def trading_open(dt=None):
     """
     Jadwal XAU AI Signal.
 
@@ -226,17 +175,13 @@ def trading_open(
         4,
     ):
 
-        # -----------------------------------------------
         # 00:00 - 02:00
-        # -----------------------------------------------
 
         if current_minutes <= 2 * 60:
 
             return True
 
-        # -----------------------------------------------
         # 07:00 - 23:59
-        # -----------------------------------------------
 
         if current_minutes >= 7 * 60:
 
@@ -258,20 +203,18 @@ def trading_open(
 
 
 # =========================================================
-# VALID SIGNAL HOURS
+# VALID SIGNAL HOUR
 # =========================================================
 
-def is_signal_hour(
-    dt=None,
-):
+def is_signal_hour(dt=None):
     """
-    Signal hanya dibuat tepat pada jam:
+    Signal dibuat setiap awal jam:
 
     00
     01
     02
 
-    dan:
+    dan
 
     07
     08
@@ -299,10 +242,6 @@ def is_signal_hour(
                 WIB
             )
 
-    # =====================================================
-    # MARKET CHECK
-    # =====================================================
-
     if not trading_open(
         now
     ):
@@ -310,10 +249,6 @@ def is_signal_hour(
         return False
 
     hour = now.hour
-
-    # =====================================================
-    # JAM 00 - 02
-    # =====================================================
 
     if hour in (
         0,
@@ -323,10 +258,6 @@ def is_signal_hour(
 
         return True
 
-    # =====================================================
-    # JAM 07 - 23
-    # =====================================================
-
     if 7 <= hour <= 23:
 
         return True
@@ -335,77 +266,23 @@ def is_signal_hour(
 
 
 # =========================================================
-# NEXT SIGNAL TIME
+# SIGNAL HOUR KEY
 # =========================================================
 
-def next_signal_time():
+def signal_hour_key(dt):
     """
-    Mencari jadwal signal berikutnya.
+    ID unik untuk satu jam signal.
 
     Contoh:
 
-    Senin 06:30
-        -> Senin 07:00
-
-    Senin 07:30
-        -> Senin 08:00
-
-    Jumat 23:30
-        -> Sabtu 00:00
-
-    Sabtu 01:30
-        -> Sabtu 02:00
-
-    Sabtu 02:30
-        -> Senin 07:00
-
-    Minggu
-        -> Senin 07:00
+    2026082607
+    2026082608
     """
 
-    now = datetime.now(
-        WIB
-    )
-
-    # =====================================================
-    # AWAL JAM BERIKUTNYA
-    # =====================================================
-
-    target = now.replace(
-        minute=0,
-        second=0,
-        microsecond=0,
-    )
-
-    if target <= now:
-
-        target += timedelta(
-            hours=1
+    return (
+        dt.strftime(
+            "%Y%m%d%H"
         )
-
-    # =====================================================
-    # CARI JAM VALID
-    # =====================================================
-
-    for _ in range(200):
-
-        if is_signal_hour(
-            target
-        ):
-
-            return target
-
-        target += timedelta(
-            hours=1
-        )
-
-    # =====================================================
-    # FALLBACK
-    # =====================================================
-
-    raise RuntimeError(
-        "Tidak dapat menemukan "
-        "jadwal signal berikutnya."
     )
 
 
@@ -424,23 +301,13 @@ def _already_processed_this_hour(
         return False
 
     return (
-        _last_signal_time.year
-        == dt.year
-
-        and
-
-        _last_signal_time.month
-        == dt.month
-
-        and
-
-        _last_signal_time.day
-        == dt.day
-
-        and
-
-        _last_signal_time.hour
-        == dt.hour
+        signal_hour_key(
+            _last_signal_time
+        )
+        ==
+        signal_hour_key(
+            dt
+        )
     )
 
 
@@ -450,7 +317,22 @@ def _already_processed_this_hour(
 
 async def process_signal(
     bot,
+    force_current_hour=False,
 ):
+    """
+    Membuat dan mengirim signal.
+
+    force_current_hour=True digunakan ketika bot
+    baru restart setelah menit 00 tetapi masih
+    berada di jam signal.
+
+    Contoh:
+
+    Bot start 07:04
+
+    -> tetap membuat signal 07:00
+    -> bukan menunggu 08:00
+    """
 
     global _signal_running
     global _last_signal_time
@@ -466,7 +348,7 @@ async def process_signal(
             "Job dilewati."
         )
 
-        return
+        return False
 
     _signal_running = True
 
@@ -493,7 +375,7 @@ async def process_signal(
                 "Signal tidak dibuat."
             )
 
-            return
+            return False
 
         # =================================================
         # SIGNAL HOUR CHECK
@@ -509,7 +391,7 @@ async def process_signal(
                 now.hour,
             )
 
-            return
+            return False
 
         # =================================================
         # DUPLICATE CHECK
@@ -520,15 +402,15 @@ async def process_signal(
         ):
 
             logger.warning(
-                "Signal %02d:00 sudah diproses. "
+                "Signal jam %02d sudah diproses. "
                 "Skip duplicate.",
                 now.hour,
             )
 
-            return
+            return False
 
         # =================================================
-        # HEADER LOG
+        # HEADER
         # =================================================
 
         logger.info(
@@ -562,10 +444,10 @@ async def process_signal(
                 "BUILD SIGNAL ERROR"
             )
 
-            return
+            return False
 
         # =================================================
-        # VALIDATE SIGNAL
+        # VALIDATE
         # =================================================
 
         if signal is None:
@@ -574,7 +456,7 @@ async def process_signal(
                 "build_signal() menghasilkan None."
             )
 
-            return
+            return False
 
         # =================================================
         # LOG SIGNAL
@@ -627,7 +509,7 @@ async def process_signal(
         )
 
         # =================================================
-        # TELEGRAM REALTIME
+        # TELEGRAM
         # =================================================
 
         telegram_success = False
@@ -646,10 +528,6 @@ async def process_signal(
                 telegram_result,
             )
 
-            # ---------------------------------------------
-            # RESULT DICT
-            # ---------------------------------------------
-
             if isinstance(
                 telegram_result,
                 dict,
@@ -661,10 +539,6 @@ async def process_signal(
                         0,
                     ) > 0
                 )
-
-            # ---------------------------------------------
-            # RESULT BOOLEAN
-            # ---------------------------------------------
 
             else:
 
@@ -681,7 +555,7 @@ async def process_signal(
             telegram_success = False
 
         # =================================================
-        # TELEGRAM GAGAL TOTAL
+        # TELEGRAM GAGAL
         # =================================================
 
         if not telegram_success:
@@ -691,16 +565,16 @@ async def process_signal(
                 "signal Telegram."
             )
 
-            return
+            return False
 
         # =================================================
-        # MARK PROCESSED
+        # SAVE SIGNAL TIME
         # =================================================
 
         _last_signal_time = now
 
         # =================================================
-        # ADD SIGNAL TO MONITOR
+        # ADD TO MONITOR
         # =================================================
 
         try:
@@ -712,22 +586,20 @@ async def process_signal(
             if monitor_added:
 
                 logger.info(
-                    "SIGNAL ADDED TO MONITOR | "
-                    "Entry timeout=%s menit | "
-                    "Monitor scan=5 menit",
-                    20,
+                    "MONITOR REGISTERED | "
+                    "Signal mulai dipantau."
                 )
 
             else:
 
                 logger.warning(
-                    "Signal gagal ditambahkan ke monitor."
+                    "MONITOR tidak menambahkan signal."
                 )
 
         except Exception:
 
             logger.exception(
-                "Gagal menambahkan signal "
+                "Gagal memasukkan signal "
                 "ke monitor."
             )
 
@@ -744,11 +616,7 @@ async def process_signal(
         )
 
         logger.info(
-            "Monitor  : ACTIVE"
-        )
-
-        logger.info(
-            "Scan     : EVERY 5 MINUTES"
+            "Monitor  : EVERY 5 MINUTES"
         )
 
         logger.info(
@@ -775,9 +643,64 @@ async def process_signal(
             "=========================================="
         )
 
+        return True
+
     finally:
 
         _signal_running = False
+
+
+# =========================================================
+# NEXT SIGNAL TIME
+# =========================================================
+
+def next_signal_time():
+    """
+    Mencari signal berikutnya.
+
+    Contoh:
+
+    07:04
+        -> 08:00
+
+    23:04
+        -> 00:00
+
+    Sabtu 02:04
+        -> Senin 07:00
+    """
+
+    now = datetime.now(
+        WIB
+    )
+
+    target = now.replace(
+        minute=0,
+        second=0,
+        microsecond=0,
+    )
+
+    # Selalu cari jam berikutnya
+    target += timedelta(
+        hours=1
+    )
+
+    for _ in range(200):
+
+        if is_signal_hour(
+            target
+        ):
+
+            return target
+
+        target += timedelta(
+            hours=1
+        )
+
+    raise RuntimeError(
+        "Tidak dapat menemukan "
+        "jadwal signal berikutnya."
+    )
 
 
 # =========================================================
@@ -849,6 +772,47 @@ async def signal_scheduler(
         "=========================================="
     )
 
+    # =====================================================
+    # STARTUP CATCH-UP
+    # =====================================================
+    #
+    # Jika bot restart:
+    #
+    # 07:00 -> normal
+    # 07:04 -> buat signal 07
+    # 07:30 -> tetap buat signal 07
+    # 07:59 -> tetap buat signal 07
+    #
+    # Jadi tidak kehilangan signal hanya karena
+    # container restart terlambat.
+    #
+    # =====================================================
+
+    startup_now = datetime.now(
+        WIB
+    )
+
+    if (
+        trading_open(
+            startup_now
+        )
+        and
+        is_signal_hour(
+            startup_now
+        )
+    ):
+
+        logger.info(
+            "STARTUP CATCH-UP | "
+            "Jam signal %02d masih aktif.",
+            startup_now.hour,
+        )
+
+        await process_signal(
+            bot,
+            force_current_hour=True,
+        )
+
     while True:
 
         try:
@@ -865,9 +829,7 @@ async def signal_scheduler(
             # NEXT SIGNAL
             # =================================================
 
-            next_run = (
-                next_signal_time()
-            )
+            next_run = next_signal_time()
 
             wait_seconds = (
                 next_run - now
@@ -922,16 +884,14 @@ async def signal_scheduler(
             )
 
             # =================================================
-            # MINUTE CHECK
+            # TOLERANCE
             # =================================================
 
             if check_time.minute != 0:
 
                 logger.warning(
-                    "Scheduler bangun bukan "
-                    "pada menit 00. "
-                    "Current=%s. "
-                    "Mencari jadwal berikutnya.",
+                    "Scheduler wake-up bukan menit 00. "
+                    "Current=%s",
                     check_time.strftime(
                         "%H:%M:%S"
                     ),
@@ -940,36 +900,7 @@ async def signal_scheduler(
                 continue
 
             # =================================================
-            # MARKET CHECK
-            # =================================================
-
-            if not trading_open(
-                check_time
-            ):
-
-                logger.info(
-                    "Market CLOSED saat "
-                    "scheduler wake-up."
-                )
-
-                continue
-
-            # =================================================
-            # SIGNAL HOUR CHECK
-            # =================================================
-
-            if not is_signal_hour(
-                check_time
-            ):
-
-                logger.info(
-                    "Bukan jam signal."
-                )
-
-                continue
-
-            # =================================================
-            # PROCESS SIGNAL
+            # PROCESS
             # =================================================
 
             await process_signal(
