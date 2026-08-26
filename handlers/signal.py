@@ -30,7 +30,8 @@ from services.signal_builder import (
 )
 
 from services.signal_store import (
-    save_detail,
+    save_signal,
+    get_signal,
     get_detail,
 )
 
