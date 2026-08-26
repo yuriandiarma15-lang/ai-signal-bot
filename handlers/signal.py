@@ -43,6 +43,38 @@ logger = logging.getLogger(
 
 
 # =========================================================
+# KEYBOARD
+# =========================================================
+
+def detail_keyboard(signal_id: str):
+
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text="📊 Detail Analisa",
+                    callback_data=f"detail:{signal_id}",
+                )
+            ]
+        ]
+    )
+
+
+def hide_detail_keyboard(signal_id: str):
+
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text="🔽 Hide Detail",
+                    callback_data=f"hide:{signal_id}",
+                )
+            ]
+        ]
+    )
+
+
+# =========================================================
 # ADMIN MANUAL SIGNAL
 # =========================================================
 
@@ -172,13 +204,18 @@ async def manual_signal(
     )
 
     # =====================================================
-    # FORMAT TradeSignal -> TEXT SHORT + DETAIL
+    # FORMAT TradeSignal
     # =====================================================
 
     try:
 
-        signal_text = format_signal_short(signal)
-        detail_text = format_signal_detail(signal)
+        signal_text = format_signal_short(
+            signal
+        )
+
+        detail_text = format_signal_detail(
+            signal
+        )
 
     except Exception:
 
@@ -194,21 +231,34 @@ async def manual_signal(
         return
 
     # =====================================================
-    # SIMPAN DETAIL + SIAPKAN TOMBOL
+    # SIMPAN DETAIL
     # =====================================================
 
-    signal_id = save_detail(detail_text)
+    try:
 
-    reply_markup = InlineKeyboardMarkup(
-        inline_keyboard=[
-            [
-                InlineKeyboardButton(
-                    text="📊 Detail Analisa",
-                    callback_data=f"detail:{signal_id}",
-                )
-            ]
-        ]
-    )
+        signal_id = save_detail(
+            detail_text
+        )
+
+    except Exception:
+
+        logger.exception(
+            "ERROR SAVE DETAIL ANALISA"
+        )
+
+        signal_id = None
+
+    # =====================================================
+    # SIAPKAN TOMBOL
+    # =====================================================
+
+    reply_markup = None
+
+    if signal_id:
+
+        reply_markup = detail_keyboard(
+            signal_id
+        )
 
     # =====================================================
     # SEND SIGNAL
@@ -233,13 +283,14 @@ async def manual_signal(
         )
 
         # =================================================
-        # FALLBACK TANPA MARKDOWN & TOMBOL
+        # FALLBACK TANPA MARKDOWN
         # =================================================
 
         try:
 
             await message.answer(
                 signal_text,
+                reply_markup=reply_markup,
             )
 
         except Exception:
@@ -251,6 +302,8 @@ async def manual_signal(
 
 # =========================================================
 # TOMBOL "DETAIL ANALISA"
+#
+# SHOW DETAIL PADA PESAN YANG SAMA
 # =========================================================
 
 @router.callback_query(
@@ -260,43 +313,250 @@ async def handle_detail_callback(
     callback: CallbackQuery
 ):
 
-    await callback.answer()  # wajib, biar tombol tidak "loading" terus
+    # =====================================================
+    # HENTIKAN LOADING BUTTON
+    # =====================================================
 
-    signal_id = callback.data.split(":", 1)[1]
+    await callback.answer()
 
-    detail_text = get_detail(signal_id)
+    # =====================================================
+    # VALIDASI MESSAGE
+    # =====================================================
 
-    if detail_text is None:
+    if not callback.message:
 
-        await callback.message.answer(
-            "⚠️ Detail analisa sudah kadaluarsa atau tidak ditemukan."
+        logger.warning(
+            "Callback detail tanpa message."
         )
 
         return
 
+    # =====================================================
+    # AMBIL SIGNAL ID
+    # =====================================================
+
+    signal_id = callback.data.split(
+        ":",
+        1
+    )[1]
+
+    # =====================================================
+    # AMBIL DETAIL
+    # =====================================================
+
+    detail_text = get_detail(
+        signal_id
+    )
+
+    if detail_text is None:
+
+        await callback.answer(
+            "⚠️ Detail analisa tidak ditemukan.",
+            show_alert=True,
+        )
+
+        return
+
+    # =====================================================
+    # EDIT PESAN YANG SAMA
+    # =====================================================
+
     try:
 
-        await callback.message.answer(
+        await callback.message.edit_text(
+
             detail_text,
+
             parse_mode="Markdown",
+
+            reply_markup=hide_detail_keyboard(
+                signal_id
+            ),
+
+        )
+
+        logger.info(
+            "DETAIL ANALISA SHOW | signal_id=%s",
+            signal_id,
         )
 
     except Exception:
 
         logger.exception(
-            "ERROR SEND DETAIL ANALISA"
+            "ERROR SHOW DETAIL ANALISA"
         )
+
+        # =================================================
+        # FALLBACK TANPA MARKDOWN
+        # =================================================
 
         try:
 
-            await callback.message.answer(
+            await callback.message.edit_text(
+
                 detail_text,
+
+                reply_markup=hide_detail_keyboard(
+                    signal_id
+                ),
+
             )
 
         except Exception:
 
             logger.exception(
-                "FALLBACK SEND DETAIL JUGA GAGAL."
+                "FALLBACK SHOW DETAIL GAGAL."
+            )
+
+
+# =========================================================
+# TOMBOL "HIDE DETAIL"
+#
+# KEMBALIKAN KE SIGNAL AWAL
+# =========================================================
+
+@router.callback_query(
+    F.data.startswith("hide:")
+)
+async def handle_hide_callback(
+    callback: CallbackQuery
+):
+
+    # =====================================================
+    # HENTIKAN LOADING BUTTON
+    # =====================================================
+
+    await callback.answer()
+
+    # =====================================================
+    # VALIDASI MESSAGE
+    # =====================================================
+
+    if not callback.message:
+
+        logger.warning(
+            "Callback hide tanpa message."
+        )
+
+        return
+
+    # =====================================================
+    # AMBIL SIGNAL ID
+    # =====================================================
+
+    signal_id = callback.data.split(
+        ":",
+        1
+    )[1]
+
+    # =====================================================
+    # AMBIL DATA DETAIL
+    #
+    # Kita mengambil signal original dari storage.
+    # =====================================================
+
+    detail_text = get_detail(
+        signal_id
+    )
+
+    if detail_text is None:
+
+        await callback.answer(
+            "⚠️ Signal sudah tidak tersedia.",
+            show_alert=True,
+        )
+
+        return
+
+    # =====================================================
+    # AMBIL SIGNAL SHORT DARI STORAGE
+    # =====================================================
+
+    try:
+
+        from services.signal_store import (
+            get_signal
+        )
+
+        signal_text = get_signal(
+            signal_id
+        )
+
+    except Exception:
+
+        signal_text = None
+
+    # =====================================================
+    # JIKA STORAGE BELUM MENYIMPAN SIGNAL SHORT
+    # =====================================================
+
+    if not signal_text:
+
+        logger.warning(
+            "Signal short tidak ditemukan | "
+            "signal_id=%s",
+            signal_id,
+        )
+
+        # Jangan mengirim pesan baru.
+        # Berikan alert saja.
+
+        await callback.answer(
+            "⚠️ Signal utama tidak dapat dipulihkan.",
+            show_alert=True,
+        )
+
+        return
+
+    # =====================================================
+    # EDIT PESAN YANG SAMA
+    # =====================================================
+
+    try:
+
+        await callback.message.edit_text(
+
+            signal_text,
+
+            parse_mode="Markdown",
+
+            reply_markup=detail_keyboard(
+                signal_id
+            ),
+
+        )
+
+        logger.info(
+            "DETAIL ANALISA HIDE | signal_id=%s",
+            signal_id,
+        )
+
+    except Exception:
+
+        logger.exception(
+            "ERROR HIDE DETAIL ANALISA"
+        )
+
+        # =================================================
+        # FALLBACK TANPA MARKDOWN
+        # =================================================
+
+        try:
+
+            await callback.message.edit_text(
+
+                signal_text,
+
+                reply_markup=detail_keyboard(
+                    signal_id
+                ),
+
+            )
+
+        except Exception:
+
+            logger.exception(
+                "FALLBACK HIDE DETAIL GAGAL."
             )
 
 
