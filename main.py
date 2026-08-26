@@ -11,7 +11,7 @@ from handlers.signal import router as signal_router
 from handlers.admin import router as admin_router
 
 from services.scheduler import signal_scheduler
-from services.website_scheduler import website_scheduler
+from services.monitor import monitor_loop
 
 
 # =========================================================
@@ -103,16 +103,36 @@ async def main():
     )
 
     # =====================================================
-    # START WEBSITE SCHEDULER
+    # START SIGNAL MONITOR
     # =====================================================
 
-    website_task = asyncio.create_task(
-        website_scheduler(),
-        name="website_scheduler",
+    monitor_task = asyncio.create_task(
+        monitor_loop(bot),
+        name="signal_monitor",
     )
 
     logger.info(
-        "🌐 WEBSITE SCHEDULER STARTED"
+        "📡 SIGNAL MONITOR STARTED"
+    )
+
+    logger.info(
+        "📊 Monitor scan interval : 5 menit"
+    )
+
+    logger.info(
+        "⏳ Entry timeout          : 20 menit"
+    )
+
+    logger.info(
+        "🎯 Monitoring             : TP1 + SL"
+    )
+
+    logger.info(
+        "🎯 TP2                    : Portfolio Only"
+    )
+
+    logger.info(
+        "=========================================="
     )
 
     logger.info(
@@ -121,6 +141,10 @@ async def main():
 
     logger.info(
         "⏰ AUTO SIGNAL EVERY HOUR ACTIVE"
+    )
+
+    logger.info(
+        "🌐 WEBSITE                : DISABLED"
     )
 
     logger.info(
@@ -172,18 +196,18 @@ async def main():
             pass
 
         # ================================================
-        # STOP WEBSITE SCHEDULER
+        # STOP MONITOR
         # ================================================
 
         logger.info(
-            "Menghentikan website scheduler..."
+            "Menghentikan signal monitor..."
         )
 
-        website_task.cancel()
+        monitor_task.cancel()
 
         try:
 
-            await website_task
+            await monitor_task
 
         except asyncio.CancelledError:
 
