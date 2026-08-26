@@ -3360,7 +3360,440 @@ def _wrap_reason(
 
 
 # =========================================================
-# FORMAT SIGNAL MESSAGE
+# FORMAT SIGNAL — SHORT (BARU)
+#
+# Dipakai untuk pengiriman utama ke member.
+# Berisi HANYA signal inti (arah, entry, SL/TP, RR).
+# Detail analisa dipisah ke format_signal_detail()
+# dan ditampilkan lewat tombol "Detail Analisa".
+# =========================================================
+
+def format_signal_short(
+    sig: TradeSignal,
+) -> str:
+
+    # =====================================================
+    # DIRECTION
+    # =====================================================
+
+    if sig.bias == "bullish":
+
+        emoji = "🟢"
+        direction_text = "BUY"
+
+    else:
+
+        emoji = "🔴"
+        direction_text = "SELL"
+
+    # =====================================================
+    # TIME
+    # =====================================================
+
+    time_str = (
+        sig.timestamp.strftime(
+            "%d-%m-%Y %H:%M"
+        )
+    )
+
+    # =====================================================
+    # ENTRY INSTRUCTION
+    # =====================================================
+
+    if sig.order_type == "Buy Limit":
+
+        instruction = (
+            f"⏳ Market sekarang "
+            f"`{_price_display(sig.current_price)}`\n"
+            f"⬇️ Tunggu turun ke "
+            f"`{_price_display(sig.entry_price)}`\n"
+            f"🎯 Lalu lakukan BUY"
+        )
+
+    elif sig.order_type == "Sell Limit":
+
+        instruction = (
+            f"⏳ Market sekarang "
+            f"`{_price_display(sig.current_price)}`\n"
+            f"⬆️ Tunggu naik ke "
+            f"`{_price_display(sig.entry_price)}`\n"
+            f"🎯 Lalu lakukan SELL"
+        )
+
+    else:
+
+        instruction = (
+            f"⚡ Market entry sekitar "
+            f"`{_price_display(sig.entry_price)}`"
+        )
+
+    # =====================================================
+    # LINES
+    # =====================================================
+
+    lines = [
+
+        "🚨 *XAU AI SMC REAL*",
+
+        "━━━━━━━━━━━━━━━━━━",
+
+        f"{emoji} *{direction_text} XAUUSD*",
+
+        f"🕐 *{time_str} WIB*",
+
+        (
+            f"🏆 Probability tertinggi: "
+            f"*{sig.probability}%* "
+            f"→ *{direction_text}*"
+        ),
+
+        "",
+
+        (
+            f"🎯 ENTRY: "
+            f"`{_price_display(sig.entry_price)}`"
+        ),
+
+        (
+            f"📌 ORDER: "
+            f"*{sig.order_type}*"
+        ),
+
+        "",
+
+        instruction,
+
+        "━━━━━━━━━━━━━━━━━━",
+
+        "",
+
+        (
+            f"🛑 SL  : "
+            f"`{_price_display(sig.sl)}` "
+            f"(-{SL_PIPS} pip)"
+        ),
+
+        (
+            f"✅ TP1 : "
+            f"`{_price_display(sig.tp1)}` "
+            f"(+{TP1_PIPS} pip)"
+        ),
+
+        (
+            f"✅ TP2 : "
+            f"`{_price_display(sig.tp2)}` "
+            f"(+{TP2_PIPS} pip)"
+        ),
+
+        (
+            f"📐 RR  : "
+            f"TP1 1:{sig.rr_tp1:.2f} | "
+            f"TP2 1:{sig.rr_tp2:.2f}"
+        ),
+
+        "",
+
+        "👇 Klik tombol di bawah untuk mengetahui Detail Analisanya",
+
+        "",
+
+        (
+            "⚠️ _Probability adalah confidence "
+            "analisa AI/SMC, bukan jaminan profit._"
+        ),
+
+        (
+            "_Selalu gunakan money management pribadi._"
+        ),
+
+        "",
+
+        (
+            "🤖 _XAU AI SMC REAL — "
+            "AI Agent Gold_"
+        ),
+    ]
+
+    return "\n".join(
+        lines
+    )
+
+
+# =========================================================
+# FORMAT SIGNAL — DETAIL (BARU)
+#
+# Berisi seluruh breakdown analisa SMC:
+# struktur, swing, OB, FVG, demand/supply,
+# liquidity, M1 timing, sesi, alasan AI,
+# dan instruksi pending (jika ada).
+#
+# Dikirim terpisah saat member klik tombol
+# "Detail Analisa".
+# =========================================================
+
+def format_signal_detail(
+    sig: TradeSignal,
+) -> str:
+
+    direction_text = (
+        "BUY"
+        if sig.bias == "bullish"
+        else "SELL"
+    )
+
+    lines = [
+
+        f"📊 *Detail Analisa — {direction_text} XAUUSD*",
+
+        "━━━━━━━━━━━━━━━━━━",
+
+        "",
+
+        # ================================================
+        # MARKET NOW
+        # ================================================
+
+        "📍 *MARKET & ENTRY MAP*",
+
+        (
+            f"💰 Market sekarang : "
+            f"`{_price_display(sig.current_price)}`"
+        ),
+
+        (
+            f"🎯 Entry Area      : "
+            f"`{_range_display(sig.zone_low, sig.zone_high)}`"
+        ),
+
+        (
+            f"🧩 Zona             : "
+            f"*{sig.zone_type or '-'} "
+            f"{sig.zone_timeframe}*"
+        ),
+
+        (
+            f"📌 Status zona      : "
+            f"*{sig.fill_status}*"
+        ),
+
+        "",
+
+        # ================================================
+        # STRUCTURE
+        # ================================================
+
+        "🧠 *M5 SMC STRUCTURE*",
+
+        (
+            f"🔀 Struktur : "
+            f"*{sig.structure_event}*"
+        ),
+
+        (
+            f"📐 Area BOS/CHoCH : "
+            f"`{_range_display(sig.structure_price_low, sig.structure_price_high)}`"
+        ),
+
+        (
+            f"🔺 Swing : "
+            f"*{sig.swing_type}*"
+        ),
+
+        (
+            f"📏 Swing Range : "
+            f"`{_range_display(sig.swing_low, sig.swing_high)}`"
+        ),
+
+        "",
+
+        # ================================================
+        # ORDER BLOCK
+        # ================================================
+
+        "🏦 *ORDER BLOCK*",
+
+        (
+            f"OB M5 : "
+            f"`{_range_display(sig.ob_low, sig.ob_high)}`"
+        ),
+
+        "",
+
+        # ================================================
+        # DEMAND SUPPLY
+        # ================================================
+
+        "🟦 *DEMAND / SUPPLY*",
+
+        (
+            f"Demand : "
+            f"`{_range_display(sig.demand_low, sig.demand_high)}`"
+        ),
+
+        (
+            f"Supply : "
+            f"`{_range_display(sig.supply_low, sig.supply_high)}`"
+        ),
+
+        "",
+
+        # ================================================
+        # FVG
+        # ================================================
+
+        "🕳 *FAIR VALUE GAP*",
+
+        (
+            f"FVG M5 : "
+            f"`{_range_display(sig.fvg_low, sig.fvg_high)}`"
+        ),
+
+        "",
+
+        # ================================================
+        # LIQUIDITY
+        # ================================================
+
+        "💧 *LIQUIDITY*",
+
+        (
+            f"Jenis : "
+            f"*{sig.liquidity_type}*"
+        ),
+
+        (
+            f"Liquidity Range : "
+            f"`{_range_display(sig.liquidity_low, sig.liquidity_high)}`"
+        ),
+
+        (
+            f"Liquidity utama : "
+            f"`{_price_display(sig.liquidity_price)}`"
+        ),
+
+        "",
+
+        # ================================================
+        # M1
+        # ================================================
+
+        "🔎 *M1 ENTRY TIMING*",
+
+        (
+            f"M1 Confirmation : "
+            f"*{'YES' if sig.m1_confirmation else 'NO'}*"
+        ),
+
+        (
+            f"Timeframe zona : "
+            f"*{sig.zone_timeframe}*"
+        ),
+
+        "",
+
+        # ================================================
+        # SESSION
+        # ================================================
+
+        (
+            f"🕐 *Sesi {sig.session_name}*"
+        ),
+
+        _wrap_reason(
+            sig.session_note
+        ),
+
+        "",
+
+        # ================================================
+        # REASONS
+        # ================================================
+
+        "🧠 *ALASAN & ANALISA AI*",
+    ]
+
+    # =====================================================
+    # REASONS
+    # =====================================================
+
+    for i, reason in enumerate(
+        sig.reasons,
+        1,
+    ):
+
+        lines.append(
+            _wrap_reason(
+                f"{i}. {reason}"
+            )
+        )
+
+    # =====================================================
+    # PENDING
+    # =====================================================
+
+    if sig.is_pending:
+
+        lines += [
+
+            "",
+
+            "⏳ *PENDING INSTRUCTION*",
+
+            _wrap_reason(
+                (
+                    f"Pasang {sig.order_type} "
+                    f"di `{_price_display(sig.entry_price)}`."
+                )
+            ),
+
+            _wrap_reason(
+                (
+                    f"Market sekarang "
+                    f"`{_price_display(sig.current_price)}`. "
+                    f"Jangan mengejar harga."
+                )
+            ),
+
+            _wrap_reason(
+                (
+                    f"Jika harga tidak menyentuh "
+                    f"entry dalam "
+                    f"{sig.pending_timeout_minutes} menit, "
+                    "anggap signal EXPIRED."
+                )
+            ),
+
+        ]
+
+    # =====================================================
+    # FOOTER
+    # =====================================================
+
+    lines += [
+
+        "",
+
+        "━━━━━━━━━━━━━━━━━━",
+
+        (
+            f"📏 Radius zona: "
+            f"*{MAX_ZONE_DISTANCE_PIPS} pip*"
+        ),
+
+        (
+            f"⏳ Pending timeout: "
+            f"*{PENDING_ORDER_TIMEOUT_MINUTES} menit*"
+        ),
+    ]
+
+    return "\n".join(
+        lines
+    )
+
+
+# =========================================================
+# FORMAT SIGNAL MESSAGE (LAMA — tetap dipertahankan
+# untuk compatibility jika masih dipanggil di tempat lain)
 # =========================================================
 
 def format_signal_message(
