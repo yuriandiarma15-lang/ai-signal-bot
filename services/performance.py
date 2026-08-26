@@ -1,38 +1,56 @@
 """
 services/performance.py
 
-XAU AI SMC REAL
-DAILY PERFORMANCE
+XAU AI SIGNAL PERFORMANCE
+=========================
 
-Fungsi:
-- Menyimpan hasil signal
-- Menghitung TP1
-- Menghitung TP2
-- Menghitung SL
-- Menghitung total pips
-- Menghitung winrate
-- Membuat laporan performance sederhana
-- Mengirim performance ke Telegram Channel
-- Menghapus data performance setelah berhasil dikirim
+Performance trading cycle:
+
+SIGNAL:
+    07:00 - 23:00 WIB
+    00:00 - 02:00 WIB
+
+REPORT:
+    04:00 WIB
 
 HASIL:
+
 TP1 = +70 pips
 TP2 = +150 pips
 SL  = -50 pips
+CANCEL = 0 pips dan tidak dihitung WIN/LOSS
 
-CANCEL / EXPIRED:
-Tidak dihitung sebagai WIN / LOSS
-dan tidak menambah / mengurangi pips.
+CATATAN:
+Jika TP2 tercapai:
+    dihitung sebagai TP2 saja.
+
+Bukan:
+    TP1 + TP2
+
+Contoh:
+
+TP2:
+    +150 pips
+
+Bukan:
+    +70 + 150
 """
+
 
 import json
 import logging
 import os
 
 from datetime import datetime, timedelta
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List
 
-from config.settings import TIMEZONE
+
+from config.settings import (
+    TIMEZONE,
+    SMC_TP1_PIPS,
+    SMC_TP2_PIPS,
+    SMC_SL_PIPS,
+)
 
 
 # =========================================================
@@ -66,6 +84,23 @@ logger = logging.getLogger(
 
 
 # =========================================================
+# PERFORMANCE CONFIG
+# =========================================================
+
+TP1_PIPS = int(
+    SMC_TP1_PIPS
+)
+
+TP2_PIPS = int(
+    SMC_TP2_PIPS
+)
+
+SL_PIPS = int(
+    SMC_SL_PIPS
+)
+
+
+# =========================================================
 # FILE
 # =========================================================
 
@@ -75,45 +110,6 @@ PERFORMANCE_FILE = os.path.join(
     DATA_DIR,
     "signal_performance.json",
 )
-
-
-# =========================================================
-# PERFORMANCE VALUE
-# =========================================================
-
-TP1_PIPS = 70
-
-TP2_PIPS = 150
-
-SL_PIPS = 50
-
-
-# =========================================================
-# TELEGRAM CHANNEL
-# =========================================================
-#
-# Ambil dari environment:
-#
-# PERFORMANCE_CHANNEL_ID=-100xxxxxxxxxx
-#
-# Jangan hardcode ID channel di source code.
-# =========================================================
-
-try:
-
-    PERFORMANCE_CHANNEL_ID = int(
-        os.getenv(
-            "PERFORMANCE_CHANNEL_ID",
-            "0",
-        )
-    )
-
-except (
-    TypeError,
-    ValueError,
-):
-
-    PERFORMANCE_CHANNEL_ID = 0
 
 
 # =========================================================
@@ -136,7 +132,9 @@ def _load() -> List[Dict[str, Any]]:
             encoding="utf-8",
         ) as f:
 
-            data = json.load(f)
+            data = json.load(
+                f
+            )
 
         if isinstance(
             data,
@@ -198,39 +196,6 @@ def _save(
 
 
 # =========================================================
-# DELETE
-# =========================================================
-
-def delete_performance_file():
-
-    if not os.path.exists(
-        PERFORMANCE_FILE
-    ):
-
-        return True
-
-    try:
-
-        os.remove(
-            PERFORMANCE_FILE
-        )
-
-        logger.info(
-            "Performance file berhasil dihapus."
-        )
-
-        return True
-
-    except Exception:
-
-        logger.exception(
-            "Gagal menghapus performance file."
-        )
-
-        return False
-
-
-# =========================================================
 # SAVE SIGNAL RESULT
 # =========================================================
 
@@ -238,12 +203,12 @@ def save_signal_result(
     item: Dict[str, Any]
 ):
     """
-    Simpan / update hasil signal.
+    Menyimpan/update hasil sebuah signal.
 
     Result:
 
-        TP1
         TP2
+        TP1
         SL
         CANCEL
         OPEN
@@ -268,8 +233,18 @@ def save_signal_result(
 
         if signal_time.tzinfo is None:
 
-            signal_time = signal_time.replace(
-                tzinfo=WIB
+            signal_time = (
+                signal_time.replace(
+                    tzinfo=WIB
+                )
+            )
+
+        else:
+
+            signal_time = (
+                signal_time.astimezone(
+                    WIB
+                )
             )
 
         signal_time_text = (
@@ -286,13 +261,21 @@ def save_signal_result(
     # =====================================================
     # RESULT
     # =====================================================
-
     #
-    # TP2 harus dicek terlebih dahulu.
+    # PRIORITAS:
     #
-    # Karena kalau TP2 terkena,
-    # otomatis TP1 biasanya sudah terkena.
+    # TP2
+    # ↓
+    # TP1
+    # ↓
+    # SL
+    # ↓
+    # CANCEL
+    # ↓
+    # OPEN
     #
+    # Jika TP2 sudah hit, jangan turun menjadi TP1.
+    # =====================================================
 
     if item.get(
         "tp2_hit"
@@ -417,8 +400,6 @@ def save_signal_result(
     ):
 
         if (
-            record["id"] is not None
-            and
             old.get("id")
             == record["id"]
         ):
@@ -452,19 +433,23 @@ def save_signal_result(
 
     logger.info(
         "PERFORMANCE SAVE | "
-        "id=%s | result=%s",
+        "id=%s | result=%s | "
+        "tp1=%s | tp2=%s | sl=%s",
         record["id"],
-        result,
+        record["result"],
+        record["tp1_hit"],
+        record["tp2_hit"],
+        record["sl_hit"],
     )
 
 
 # =========================================================
-# PARSE SIGNAL DATE
+# PARSE DATETIME
 # =========================================================
 
-def _parse_signal_datetime(
+def _parse_datetime(
     value
-) -> Optional[datetime]:
+):
 
     if not value:
 
@@ -472,58 +457,106 @@ def _parse_signal_datetime(
 
     try:
 
-        if isinstance(
-            value,
-            datetime,
-        ):
-
-            dt = value
-
-        else:
-
-            dt = datetime.fromisoformat(
-                str(value)
-            )
-
-
-        if dt.tzinfo is None:
-
-            dt = dt.replace(
-                tzinfo=WIB
-            )
-
-        else:
-
-            dt = dt.astimezone(
-                WIB
-            )
-
-
-        return dt
+        dt = datetime.fromisoformat(
+            str(value)
+        )
 
     except Exception:
 
         return None
 
 
+    if dt.tzinfo is None:
+
+        dt = dt.replace(
+            tzinfo=WIB
+        )
+
+    else:
+
+        dt = dt.astimezone(
+            WIB
+        )
+
+
+    return dt
+
+
 # =========================================================
-# GET PERFORMANCE BY DATE
+# GET PERFORMANCE CYCLE
 # =========================================================
 
-def get_performance_by_date(
-    target_date=None
-):
+def get_performance_cycle():
+
+    """
+    Mengambil signal berdasarkan trading cycle.
+
+    Contoh laporan:
+
+    27-08-2026 04:00 WIB
+
+    akan mengambil:
+
+    26-08-2026 07:00
+        sampai
+    26-08-2026 23:59
+
+    lalu:
+
+    27-08-2026 00:00
+        sampai
+    27-08-2026 02:00
+    """
 
     data = _load()
 
 
-    if target_date is None:
+    now = datetime.now(
+        WIB
+    )
 
-        target_date = (
-            datetime.now(
-                WIB
-            ).date()
+
+    # =====================================================
+    # REPORT DATE
+    # =====================================================
+    #
+    # Jika sekarang 04:00:
+    #
+    # cycle_start = kemarin 07:00
+    #
+    # cycle_end = hari ini 02:00
+    # =====================================================
+
+    today = now.date()
+
+    yesterday = (
+        today
+        - timedelta(
+            days=1
         )
+    )
+
+
+    cycle_start = datetime(
+        yesterday.year,
+        yesterday.month,
+        yesterday.day,
+        7,
+        0,
+        0,
+        tzinfo=WIB,
+    )
+
+
+    cycle_end = datetime(
+        today.year,
+        today.month,
+        today.day,
+        2,
+        0,
+        0,
+        tzinfo=WIB,
+    )
 
 
     result = []
@@ -531,7 +564,7 @@ def get_performance_by_date(
 
     for item in data:
 
-        dt = _parse_signal_datetime(
+        dt = _parse_datetime(
             item.get(
                 "signal_time"
             )
@@ -543,17 +576,31 @@ def get_performance_by_date(
             continue
 
 
-        if dt.date() == target_date:
+        # =================================================
+        # CYCLE FILTER
+        # =================================================
+
+        if (
+            cycle_start
+            <= dt
+            <= cycle_end
+        ):
 
             result.append(
                 item
             )
 
 
+    # =====================================================
+    # SORT
+    # =====================================================
+
     result.sort(
-        key=lambda x: x.get(
-            "signal_time",
-            ""
+        key=lambda x: (
+            x.get(
+                "signal_time",
+                ""
+            )
         )
     )
 
@@ -562,53 +609,54 @@ def get_performance_by_date(
 
 
 # =========================================================
-# GET TODAY
+# BACKWARD COMPATIBILITY
 # =========================================================
 
 def get_today_performance():
 
-    return get_performance_by_date()
-
-
-# =========================================================
-# BUILD PERFORMANCE
-# =========================================================
-
-def build_performance_text(
-    target_date=None
-):
     """
-    Membuat laporan performance sederhana.
+    Compatibility wrapper.
 
-    Format:
-
-    07:00 BUY 4647 → TP1 +70
-    08:00 SELL 4650 → TP2 +150
-    09:00 BUY 4645 → SL -50
-
-    kemudian total.
+    Sekarang diarahkan ke trading cycle
+    agar scheduler lama tetap tidak error.
     """
 
-    records = get_performance_by_date(
-        target_date
+    return (
+        get_performance_cycle()
     )
 
 
-    # =====================================================
-    # DATE
-    # =====================================================
+# =========================================================
+# RESULT PIPS
+# =========================================================
 
-    if target_date is None:
+def get_result_pips(
+    result
+):
 
-        target_date = (
-            datetime.now(
-                WIB
-            ).date()
-        )
+    if result == "TP2":
+
+        return TP2_PIPS
+
+    if result == "TP1":
+
+        return TP1_PIPS
+
+    if result == "SL":
+
+        return -SL_PIPS
+
+    return 0
 
 
-    date_text = target_date.strftime(
-        "%d %B %Y"
+# =========================================================
+# BUILD PERFORMANCE TEXT
+# =========================================================
+
+def build_performance_text():
+
+    records = (
+        get_performance_cycle()
     )
 
 
@@ -616,32 +664,70 @@ def build_performance_text(
     # HEADER
     # =====================================================
 
-    lines = [
+    now = datetime.now(
+        WIB
+    )
 
-        "📊 *XAU AI SMC REAL*",
 
-        f"*PERFORMANCE — {date_text}*",
+    report_date = (
+        now
+        - timedelta(
+            days=1
+        )
+    )
 
-        "━━━━━━━━━━━━━━━━",
 
-        "",
+    date_text = report_date.strftime(
+        "%d-%m-%Y"
+    )
 
-    ]
+
+    # =====================================================
+    # EMPTY
+    # =====================================================
+
+    if not records:
+
+        return (
+            "📊 *XAU AI SMC REAL*\n"
+            f"*PERFORMANCE {date_text}*\n"
+            "━━━━━━━━━━━━━━━━\n\n"
+            "Tidak ada signal yang tercatat."
+        )
 
 
     # =====================================================
     # COUNTERS
     # =====================================================
 
-    tp1_count = 0
+    total_signal = 0
 
-    tp2_count = 0
+    total_tp1 = 0
 
-    sl_count = 0
+    total_tp2 = 0
 
-    cancel_count = 0
+    total_sl = 0
+
+    total_cancel = 0
 
     total_pips = 0
+
+    wins = 0
+
+    losses = 0
+
+
+    lines = [
+
+        "📊 *XAU AI SMC REAL*",
+
+        f"*PERFORMANCE {date_text}*",
+
+        "━━━━━━━━━━━━━━━━",
+
+        "",
+
+    ]
 
 
     # =====================================================
@@ -668,7 +754,7 @@ def build_performance_text(
         # TIME
         # -------------------------------------------------
 
-        dt = _parse_signal_datetime(
+        dt = _parse_datetime(
             item.get(
                 "signal_time"
             )
@@ -677,13 +763,13 @@ def build_performance_text(
 
         if dt:
 
-            signal_time = dt.strftime(
+            jam = dt.strftime(
                 "%H:%M"
             )
 
         else:
 
-            signal_time = "--:--"
+            jam = "--:--"
 
 
         # -------------------------------------------------
@@ -712,75 +798,82 @@ def build_performance_text(
         # RESULT
         # -------------------------------------------------
 
+        pips = get_result_pips(
+            result
+        )
+
+
         if result == "TP2":
 
-            tp2_count += 1
-
-            total_pips += TP2_PIPS
-
             result_text = (
-                f"TP2 ✅ +{TP2_PIPS}"
+                f"✅ TP2 +{TP2_PIPS} pips"
             )
+
+            total_tp2 += 1
+
+            wins += 1
 
 
         elif result == "TP1":
 
-            tp1_count += 1
-
-            total_pips += TP1_PIPS
-
             result_text = (
-                f"TP1 ✅ +{TP1_PIPS}"
+                f"✅ TP1 +{TP1_PIPS} pips"
             )
+
+            total_tp1 += 1
+
+            wins += 1
 
 
         elif result == "SL":
 
-            sl_count += 1
-
-            total_pips -= SL_PIPS
-
             result_text = (
-                f"SL ❌ -{SL_PIPS}"
+                f"❌ SL -{SL_PIPS} pips"
             )
+
+            total_sl += 1
+
+            losses += 1
 
 
         elif result == "CANCEL":
 
-            cancel_count += 1
-
             result_text = (
-                "EXPIRED ⚪"
+                "⚪ CANCEL"
             )
+
+            total_cancel += 1
 
 
         else:
 
-            continue
+            result_text = (
+                "—"
+            )
 
 
         # -------------------------------------------------
-        # SIGNAL LINE
+        # COUNT
+        # -------------------------------------------------
+
+        total_signal += 1
+
+        total_pips += pips
+
+
+        # -------------------------------------------------
+        # LINE
         # -------------------------------------------------
 
         lines.append(
-            f"{signal_time}  {bias}  "
-            f"`{entry}` → {result_text}"
+            f"{jam} | {bias} | "
+            f"`{entry}` | {result_text}"
         )
 
 
     # =====================================================
     # WINRATE
     # =====================================================
-
-    wins = (
-        tp1_count
-        + tp2_count
-    )
-
-
-    losses = sl_count
-
 
     counted = (
         wins
@@ -802,7 +895,7 @@ def build_performance_text(
 
 
     # =====================================================
-    # SUMMARY
+    # TOTAL
     # =====================================================
 
     lines.extend([
@@ -811,23 +904,21 @@ def build_performance_text(
 
         "━━━━━━━━━━━━━━━━",
 
-        "📈 *TOTAL PERFORMANCE*",
+        f"Total Signal : *{total_signal}*",
+
+        f"TP1          : *{total_tp1}*",
+
+        f"TP2          : *{total_tp2}*",
+
+        f"SL           : *{total_sl}*",
+
+        f"Cancel       : *{total_cancel}*",
 
         "",
 
-        f"TP1 : *{tp1_count}*",
+        f"Total Pips   : *{total_pips:+d} pips*",
 
-        f"TP2 : *{tp2_count}*",
-
-        f"SL  : *{sl_count}*",
-
-        f"Expired : *{cancel_count}*",
-
-        "",
-
-        f"Winrate : *{winrate:.2f}%*",
-
-        f"Total Pips : *{total_pips:+d} PIPS*",
+        f"Winrate      : *{winrate:.2f}%*",
 
         "",
 
@@ -835,7 +926,11 @@ def build_performance_text(
 
         "",
 
-        "🤖 *Jika Ingin trading Lebih Terstruktur*",
+        "🤖 *AI Assistant GOLD*",
+
+        "",
+
+        "Jika Ingin trading Lebih Terstruktur",
 
         "dengan bantuan AI,",
 
@@ -854,134 +949,78 @@ def build_performance_text(
 
 
 # =========================================================
-# SEND PERFORMANCE TO CHANNEL
+# DELETE PERFORMANCE FILE
 # =========================================================
 
-async def send_daily_performance(
-    bot,
-    target_date=None,
-):
-    """
-    Kirim performance harian ke channel Telegram.
+def delete_performance_file():
 
-    Dipanggil scheduler pada 04:00 WIB.
+    if not os.path.exists(
+        PERFORMANCE_FILE
+    ):
 
-    Hanya menghapus file jika pengiriman berhasil.
-    """
+        return
 
-    # =====================================================
-    # CHANNEL CHECK
-    # =====================================================
-
-    if not PERFORMANCE_CHANNEL_ID:
-
-        logger.error(
-            "PERFORMANCE_CHANNEL_ID belum "
-            "dikonfigurasi."
-        )
-
-        return False
-
-
-    # =====================================================
-    # BUILD MESSAGE
-    # =====================================================
 
     try:
 
-        text = build_performance_text(
-            target_date
-        )
-
-    except Exception:
-
-        logger.exception(
-            "Gagal membuat performance text."
-        )
-
-        return False
-
-
-    # =====================================================
-    # SEND
-    # =====================================================
-
-    try:
-
-        await bot.send_message(
-
-            chat_id=(
-                PERFORMANCE_CHANNEL_ID
-            ),
-
-            text=text,
-
-            parse_mode="Markdown",
-
-            disable_web_page_preview=True,
-
+        os.remove(
+            PERFORMANCE_FILE
         )
 
 
         logger.info(
-            "DAILY PERFORMANCE berhasil "
-            "dikirim ke channel."
+            "Performance file dihapus setelah "
+            "laporan berhasil dikirim."
         )
 
 
     except Exception:
 
         logger.exception(
-            "Gagal mengirim daily performance."
+            "Gagal menghapus performance file."
         )
-
-        return False
-
-
-    # =====================================================
-    # DELETE DATA
-    # =====================================================
-
-    delete_performance_file()
-
-
-    return True
 
 
 # =========================================================
-# PERFORMANCE TIME
+# DEBUG
 # =========================================================
 
-def is_performance_hour(
-    dt=None
-):
-    """
-    True jika waktu menunjukkan 04:00 WIB.
-    """
+if __name__ == "__main__":
 
-    if dt is None:
+    print(
+        "=========================================="
+    )
 
-        now = datetime.now(
-            WIB
-        )
+    print(
+        "XAU AI PERFORMANCE TEST"
+    )
 
-    else:
+    print(
+        "=========================================="
+    )
 
-        if dt.tzinfo is None:
+    print(
+        "TP1:",
+        TP1_PIPS,
+        "pips"
+    )
 
-            now = dt.replace(
-                tzinfo=WIB
-            )
+    print(
+        "TP2:",
+        TP2_PIPS,
+        "pips"
+    )
 
-        else:
+    print(
+        "SL :",
+        SL_PIPS,
+        "pips"
+    )
 
-            now = dt.astimezone(
-                WIB
-            )
+    print(
+        "=========================================="
+    )
 
-
-    return (
-        now.hour == 4
-        and
-        now.minute == 0
+    print(
+        build_performance_text()
     )
