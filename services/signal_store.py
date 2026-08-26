@@ -8,21 +8,14 @@ Menyimpan:
 - Signal short
 - Detail analisa
 
-Tujuan:
-Saat user klik:
+Fungsi:
+- save_signal()
+- get_signal()
+- save_detail()
+- get_detail()
 
-📊 Detail Analisa
-    ↓
-pesan yang sama berubah menjadi detail
-
-🔽 Hide Detail
-    ↓
-pesan yang sama kembali menjadi signal awal
-
-Tidak mengirim pesan baru.
-
-Data disimpan sementara di memory.
-Tidak menggunakan database permanen.
+save_detail() tetap dipertahankan agar
+services/sender.py lama tidak error.
 """
 
 import time
@@ -37,7 +30,7 @@ from typing import Dict, Optional, Tuple
 
 _store: Dict[
     str,
-    Tuple[str, str, float]
+    Tuple[str, Optional[str], float]
 ] = {}
 
 
@@ -45,7 +38,6 @@ _store: Dict[
 # TTL
 # =========================================================
 
-# Data signal disimpan selama 6 jam.
 TTL_SECONDS = 6 * 60 * 60
 
 
@@ -72,7 +64,30 @@ def save_signal(
 
 
 # =========================================================
-# GET SIGNAL SHORT
+# SAVE DETAIL
+#
+# COMPATIBILITY DENGAN sender.py LAMA
+# =========================================================
+
+def save_detail(
+    detail_text: str,
+) -> str:
+
+    _cleanup()
+
+    signal_id = uuid.uuid4().hex[:12]
+
+    _store[signal_id] = (
+        "",
+        detail_text,
+        time.time(),
+    )
+
+    return signal_id
+
+
+# =========================================================
+# GET SIGNAL
 # =========================================================
 
 def get_signal(
@@ -88,7 +103,12 @@ def get_signal(
     if not entry:
         return None
 
-    return entry[0]
+    signal_text = entry[0]
+
+    if not signal_text:
+        return None
+
+    return signal_text
 
 
 # =========================================================
@@ -126,7 +146,7 @@ def delete_signal(
 
 
 # =========================================================
-# CLEANUP EXPIRED DATA
+# CLEANUP
 # =========================================================
 
 def _cleanup() -> None:
