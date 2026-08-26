@@ -90,7 +90,7 @@ async def main():
     )
 
     # =====================================================
-    # START SIGNAL SCHEDULER
+    # SIGNAL SCHEDULER
     # =====================================================
 
     signal_task = asyncio.create_task(
@@ -103,7 +103,7 @@ async def main():
     )
 
     # =====================================================
-    # START SIGNAL MONITOR
+    # MONITOR
     # =====================================================
 
     monitor_task = asyncio.create_task(
@@ -112,31 +112,11 @@ async def main():
     )
 
     logger.info(
-        "📡 SIGNAL MONITOR STARTED"
+        "📊 SIGNAL MONITOR STARTED"
     )
 
     logger.info(
-        "📊 Monitor scan interval : 5 menit"
-    )
-
-    logger.info(
-        "⏳ Entry timeout          : 20 menit"
-    )
-
-    logger.info(
-        "🎯 Monitoring             : TP1 + SL"
-    )
-
-    logger.info(
-        "🎯 TP2                    : Portfolio Only"
-    )
-
-    logger.info(
-        "=========================================="
-    )
-
-    logger.info(
-        "📊 MARKET ANALYSIS ENGINE ACTIVE"
+        "📈 MARKET ANALYSIS ENGINE ACTIVE"
     )
 
     logger.info(
@@ -144,7 +124,7 @@ async def main():
     )
 
     logger.info(
-        "🌐 WEBSITE                : DISABLED"
+        "🔎 MONITOR SCAN EVERY 5 MINUTES"
     )
 
     logger.info(
@@ -154,7 +134,7 @@ async def main():
     try:
 
         # =================================================
-        # START TELEGRAM POLLING
+        # TELEGRAM POLLING
         # =================================================
 
         await dp.start_polling(
@@ -177,9 +157,9 @@ async def main():
 
     finally:
 
-        # ================================================
+        # =================================================
         # STOP SIGNAL SCHEDULER
-        # ================================================
+        # =================================================
 
         logger.info(
             "Menghentikan signal scheduler..."
@@ -195,9 +175,9 @@ async def main():
 
             pass
 
-        # ================================================
+        # =================================================
         # STOP MONITOR
-        # ================================================
+        # =================================================
 
         logger.info(
             "Menghentikan signal monitor..."
@@ -213,9 +193,9 @@ async def main():
 
             pass
 
-        # ================================================
-        # CLOSE BOT SESSION
-        # ================================================
+        # =================================================
+        # CLOSE BOT
+        # =================================================
 
         await bot.session.close()
 
