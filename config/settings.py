@@ -1004,3 +1004,12 @@ DEBUG_SMC = (
         "on",
     )
 )
+
+# =========================================================
+# PERFORMANCE CHANNEL
+# =========================================================
+
+PERFORMANCE_CHANNEL_ID = _int_env(
+    "PERFORMANCE_CHANNEL_ID",
+    0
+)
