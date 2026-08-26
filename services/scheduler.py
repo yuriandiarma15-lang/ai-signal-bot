@@ -4,19 +4,19 @@ services/scheduler.py
 XAU AI SIGNAL SCHEDULER
 =======================
 
-SIGNAL:
+JADWAL SIGNAL:
 
-Senin
+SENIN
     07:00 - 23:00 WIB
 
-Selasa - Jumat
+SELASA - JUMAT
     00:00 - 02:00 WIB
     07:00 - 23:00 WIB
 
-Sabtu
+SABTU
     00:00 - 02:00 WIB
 
-Minggu
+MINGGU
     CLOSED
 
 
@@ -25,28 +25,58 @@ PERFORMANCE:
 Setiap hari:
     04:00 WIB
 
-Performance mencakup:
+Performance menghitung trading cycle:
 
-    Hari sebelumnya 07:00
-        sampai
-    hari ini 02:00
+    Hari sebelumnya
+        07:00 - 23:00
 
-Contoh:
+    Hari berjalan
+        00:00 - 02:00
 
-25-08 07:00
-...
-25-08 23:00
-26-08 00:00
-26-08 01:00
-26-08 02:00
 
-        ↓
+FLOW SIGNAL:
 
-26-08 04:00
+Scheduler
+    ↓
+Jam :00
+    ↓
+Build Signal
+    ↓
+Telegram REALTIME
+    ↓
+Save Pending Website
+    ↓
+Website publish +1 JAM
 
-Performance dikirim ke Telegram Channel.
+
+FLOW PERFORMANCE:
+
+04:00 WIB
+    ↓
+Ambil hasil signal trading cycle
+    ↓
+Hitung TP1 / TP2 / SL
+    ↓
+Hitung total pips
+    ↓
+Hitung winrate
+    ↓
+Kirim ke Telegram Channel
+    ↓
+Hapus file performance
+
+
+TIMEFRAME:
+
+M5 Structure
+M1 Entry Timing
+SMC
+Order Block
+FVG
+Liquidity
+BOS / CHoCH
+Risk Management
 """
-
 
 import asyncio
 import logging
@@ -55,27 +85,25 @@ from datetime import datetime, timedelta
 
 import pytz
 
-
-from config.settings import TIMEZONE
-
+from config.settings import (
+    TIMEZONE,
+)
 
 from services.signal_builder import (
     build_signal,
 )
 
-
 from services.sender import (
     send_signal_to_members,
 )
-
 
 from services.pending import (
     save_pending_signal,
 )
 
-
 from services.performance import (
-    send_daily_performance,
+    build_performance_text,
+    delete_performance_file,
 )
 
 
@@ -95,6 +123,65 @@ WIB = pytz.timezone(
 logger = logging.getLogger(
     "signal_scheduler"
 )
+
+
+# =========================================================
+# PERFORMANCE CHANNEL
+# =========================================================
+#
+# Ambil dari .env:
+#
+# PERFORMANCE_CHANNEL_ID=-100xxxxxxxxxx
+#
+# Contoh:
+#
+# PERFORMANCE_CHANNEL_ID=-1001234567890
+#
+# Pastikan bot sudah menjadi ADMIN di channel.
+# =========================================================
+
+import os
+
+
+def _get_performance_channel_id():
+
+    value = os.getenv(
+        "PERFORMANCE_CHANNEL_ID",
+        ""
+    ).strip()
+
+    if not value:
+        return None
+
+    try:
+
+        return int(
+            value
+        )
+
+    except (
+        ValueError,
+        TypeError,
+    ):
+
+        logger.error(
+            "PERFORMANCE_CHANNEL_ID tidak valid: %s",
+            value,
+        )
+
+        return None
+
+
+PERFORMANCE_CHANNEL_ID = (
+    _get_performance_channel_id()
+)
+
+
+# =========================================================
+# PERFORMANCE SEND HOUR
+# =========================================================
+
+PERFORMANCE_HOUR = 4
 
 
 # =========================================================
@@ -119,7 +206,7 @@ _last_signal_time = None
 
 
 # =========================================================
-# LAST PERFORMANCE DATE
+# LAST PERFORMANCE TIME
 # =========================================================
 
 _last_performance_date = None
@@ -132,6 +219,26 @@ _last_performance_date = None
 def trading_open(
     dt=None,
 ):
+    """
+    Menentukan apakah market signal sedang aktif.
+
+    SENIN
+        07:00 - 23:59
+
+    SELASA - JUMAT
+        00:00 - 02:00
+        07:00 - 23:59
+
+    SABTU
+        00:00 - 02:00
+
+    MINGGU
+        CLOSED
+    """
+
+    # =====================================================
+    # CURRENT TIME
+    # =====================================================
 
     if dt is None:
 
@@ -154,8 +261,24 @@ def trading_open(
             )
 
 
+    # =====================================================
+    # WEEKDAY
+    # =====================================================
+
     weekday = now.weekday()
 
+    # Monday    = 0
+    # Tuesday   = 1
+    # Wednesday = 2
+    # Thursday  = 3
+    # Friday    = 4
+    # Saturday  = 5
+    # Sunday    = 6
+
+
+    # =====================================================
+    # MINUTES
+    # =====================================================
 
     current_minutes = (
         now.hour * 60
@@ -194,12 +317,16 @@ def trading_open(
         4,
     ):
 
+        # 00:00 - 02:00
+
         if current_minutes <= (
             2 * 60
         ):
 
             return True
 
+
+        # 07:00 - 23:59
 
         if current_minutes >= (
             7 * 60
@@ -234,6 +361,20 @@ def trading_open(
 def is_signal_hour(
     dt=None,
 ):
+    """
+    Signal dibuat pada:
+
+    00:00
+    01:00
+    02:00
+
+    dan:
+
+    07:00
+    08:00
+    ...
+    23:00
+    """
 
     if dt is None:
 
@@ -256,6 +397,10 @@ def is_signal_hour(
             )
 
 
+    # =====================================================
+    # MARKET CHECK
+    # =====================================================
+
     if not trading_open(
         now
     ):
@@ -263,10 +408,12 @@ def is_signal_hour(
         return False
 
 
+    # =====================================================
+    # HOUR
+    # =====================================================
+
     hour = now.hour
 
-
-    # 00:00 - 02:00
 
     if hour in (
         0,
@@ -276,8 +423,6 @@ def is_signal_hour(
 
         return True
 
-
-    # 07:00 - 23:00
 
     if 7 <= hour <= 23:
 
@@ -317,64 +462,81 @@ def is_performance_hour(
 
 
     return (
-        now.hour == 4
+        now.hour == PERFORMANCE_HOUR
         and
         now.minute == 0
     )
 
 
 # =========================================================
-# PERFORMANCE TRADING DATE
+# NEXT EVENT TIME
 # =========================================================
 
-def get_performance_trading_date(
-    dt=None,
-):
+def next_event_time():
     """
-    Menentukan tanggal awal siklus trading.
+    Mencari event berikutnya:
 
-    Performance jam 04:00:
-
-        26 Agustus 04:00
-
-    mengambil:
-
-        25 Agustus 07:00
-        sampai
-        26 Agustus 02:00
-
-    Maka trading date = 25 Agustus.
+        signal jam :00
+        ATAU
+        performance 04:00
     """
 
-    if dt is None:
+    now = datetime.now(
+        WIB
+    )
 
-        now = datetime.now(
-            WIB
+
+    # =====================================================
+    # START DARI JAM SEKARANG
+    # =====================================================
+
+    target = now.replace(
+        minute=0,
+        second=0,
+        microsecond=0,
+    )
+
+
+    if target <= now:
+
+        target += timedelta(
+            hours=1
         )
 
-    else:
 
-        if dt.tzinfo is None:
+    # =====================================================
+    # SEARCH
+    # =====================================================
 
-            now = WIB.localize(
-                dt
-            )
+    for _ in range(240):
 
-        else:
+        # -----------------------------------------------
+        # PERFORMANCE
+        # -----------------------------------------------
 
-            now = dt.astimezone(
-                WIB
-            )
+        if target.hour == PERFORMANCE_HOUR:
+
+            return target
 
 
-    # Pada jam 04:00,
-    # trading day dimulai kemarin.
+        # -----------------------------------------------
+        # SIGNAL
+        # -----------------------------------------------
 
-    return (
-        now.date()
-        - timedelta(
-            days=1
+        if is_signal_hour(
+            target
+        ):
+
+            return target
+
+
+        target += timedelta(
+            hours=1
         )
+
+
+    raise RuntimeError(
+        "Tidak dapat menemukan event scheduler."
     )
 
 
@@ -388,13 +550,11 @@ def next_signal_time():
         WIB
     )
 
-
     target = now.replace(
         minute=0,
         second=0,
         microsecond=0,
     )
-
 
     if target <= now:
 
@@ -411,7 +571,6 @@ def next_signal_time():
 
             return target
 
-
         target += timedelta(
             hours=1
         )
@@ -424,35 +583,6 @@ def next_signal_time():
 
 
 # =========================================================
-# NEXT PERFORMANCE TIME
-# =========================================================
-
-def next_performance_time():
-
-    now = datetime.now(
-        WIB
-    )
-
-
-    target = now.replace(
-        hour=4,
-        minute=0,
-        second=0,
-        microsecond=0,
-    )
-
-
-    if target <= now:
-
-        target += timedelta(
-            days=1
-        )
-
-
-    return target
-
-
-# =========================================================
 # DUPLICATE SIGNAL
 # =========================================================
 
@@ -462,28 +592,23 @@ def _already_processed_this_hour(
 
     global _last_signal_time
 
-
     if _last_signal_time is None:
 
         return False
-
 
     return (
         _last_signal_time.year
         == dt.year
 
         and
-
         _last_signal_time.month
         == dt.month
 
         and
-
         _last_signal_time.day
         == dt.day
 
         and
-
         _last_signal_time.hour
         == dt.hour
     )
@@ -493,22 +618,209 @@ def _already_processed_this_hour(
 # DUPLICATE PERFORMANCE
 # =========================================================
 
-def _already_processed_performance(
-    trading_date,
+def _performance_already_sent(
+    dt: datetime,
 ) -> bool:
 
     global _last_performance_date
-
 
     if _last_performance_date is None:
 
         return False
 
-
     return (
         _last_performance_date
-        == trading_date
+        == dt.date()
     )
+
+
+# =========================================================
+# SEND PERFORMANCE
+# =========================================================
+
+async def send_daily_performance(
+    bot,
+):
+    """
+    Kirim performance harian ke Telegram Channel.
+
+    Waktu:
+        04:00 WIB
+
+    Setelah berhasil:
+        performance file dihapus.
+    """
+
+    global _performance_running
+    global _last_performance_date
+
+
+    # =====================================================
+    # LOCK
+    # =====================================================
+
+    if _performance_running:
+
+        logger.warning(
+            "Performance sebelumnya masih diproses."
+        )
+
+        return
+
+
+    _performance_running = True
+
+
+    try:
+
+        now = datetime.now(
+            WIB
+        )
+
+
+        # =================================================
+        # CHANNEL CHECK
+        # =================================================
+
+        if not PERFORMANCE_CHANNEL_ID:
+
+            logger.error(
+                "PERFORMANCE_CHANNEL_ID belum dikonfigurasi."
+            )
+
+            return
+
+
+        # =================================================
+        # DUPLICATE CHECK
+        # =================================================
+
+        if _performance_already_sent(
+            now
+        ):
+
+            logger.warning(
+                "Performance %s sudah dikirim.",
+                now.strftime(
+                    "%Y-%m-%d"
+                ),
+            )
+
+            return
+
+
+        # =================================================
+        # BUILD TEXT
+        # =================================================
+
+        try:
+
+            performance_text = (
+                build_performance_text()
+            )
+
+        except Exception:
+
+            logger.exception(
+                "Gagal membuat performance text."
+            )
+
+            return
+
+
+        if not performance_text:
+
+            logger.warning(
+                "Performance text kosong."
+            )
+
+            return
+
+
+        # =================================================
+        # SEND CHANNEL
+        # =================================================
+
+        try:
+
+            await bot.send_message(
+
+                chat_id=(
+                    PERFORMANCE_CHANNEL_ID
+                ),
+
+                text=performance_text,
+
+                parse_mode="Markdown",
+
+                disable_web_page_preview=True,
+
+            )
+
+
+        except Exception:
+
+            logger.exception(
+                "Gagal mengirim performance "
+                "ke channel Telegram."
+            )
+
+            return
+
+
+        # =================================================
+        # SUCCESS
+        # =================================================
+
+        _last_performance_date = (
+            now.date()
+        )
+
+
+        logger.info(
+            "=========================================="
+        )
+
+        logger.info(
+            "DAILY PERFORMANCE TERKIRIM"
+        )
+
+        logger.info(
+            "Channel: %s",
+            PERFORMANCE_CHANNEL_ID,
+        )
+
+        logger.info(
+            "Time: %s",
+            now.strftime(
+                "%d-%m-%Y %H:%M:%S WIB"
+            ),
+        )
+
+        logger.info(
+            "=========================================="
+        )
+
+
+        # =================================================
+        # DELETE
+        # =================================================
+
+        try:
+
+            delete_performance_file()
+
+        except Exception:
+
+            logger.exception(
+                "Performance berhasil dikirim "
+                "tetapi file gagal dihapus."
+            )
+
+
+    finally:
+
+        _performance_running = False
 
 
 # =========================================================
@@ -518,6 +830,9 @@ def _already_processed_performance(
 async def process_signal(
     bot,
 ):
+    """
+    Membuat dan mengirim satu signal.
+    """
 
     global _signal_running
     global _last_signal_time
@@ -530,8 +845,7 @@ async def process_signal(
     if _signal_running:
 
         logger.warning(
-            "Signal sebelumnya masih diproses. "
-            "Job dilewati."
+            "Signal sebelumnya masih diproses."
         )
 
         return
@@ -637,7 +951,7 @@ async def process_signal(
 
 
         # =================================================
-        # VALIDATE
+        # NONE
         # =================================================
 
         if signal is None:
@@ -689,7 +1003,7 @@ async def process_signal(
 
 
         # =================================================
-        # SEND TELEGRAM
+        # TELEGRAM MEMBER
         # =================================================
 
         telegram_success = False
@@ -740,14 +1054,13 @@ async def process_signal(
 
 
         # =================================================
-        # TELEGRAM FAILED
+        # FAILED
         # =================================================
 
         if not telegram_success:
 
             logger.error(
-                "Signal tidak berhasil "
-                "dikirim ke member."
+                "Tidak ada member menerima signal."
             )
 
             return
@@ -771,7 +1084,8 @@ async def process_signal(
             )
 
             logger.info(
-                "PENDING WEBSITE SAVED."
+                "PENDING WEBSITE SAVED | "
+                "Publish +1 JAM."
             )
 
         except Exception:
@@ -787,9 +1101,9 @@ async def process_signal(
 
         logger.info(
             "SIGNAL PROCESS COMPLETE | "
-            "Telegram=REALTIME | "
-            "Website=+1 JAM | "
-            "Pending=20 MENIT"
+            "Telegram REALTIME | "
+            "Website +1 JAM | "
+            "Pending timeout 20 menit"
         )
 
 
@@ -799,158 +1113,7 @@ async def process_signal(
 
 
 # =========================================================
-# PROCESS PERFORMANCE
-# =========================================================
-
-async def process_performance(
-    bot,
-):
-
-    global _performance_running
-    global _last_performance_date
-
-
-    # =====================================================
-    # LOCK
-    # =====================================================
-
-    if _performance_running:
-
-        logger.warning(
-            "Performance sebelumnya masih diproses."
-        )
-
-        return
-
-
-    _performance_running = True
-
-
-    try:
-
-        # =================================================
-        # CURRENT TIME
-        # =================================================
-
-        now = datetime.now(
-            WIB
-        )
-
-
-        # =================================================
-        # PERFORMANCE HOUR
-        # =================================================
-
-        if not is_performance_hour(
-            now
-        ):
-
-            return
-
-
-        # =================================================
-        # TRADING DATE
-        # =================================================
-
-        trading_date = (
-            get_performance_trading_date(
-                now
-            )
-        )
-
-
-        # =================================================
-        # DUPLICATE
-        # =================================================
-
-        if _already_processed_performance(
-            trading_date
-        ):
-
-            logger.warning(
-                "Performance %s sudah dikirim.",
-                trading_date,
-            )
-
-            return
-
-
-        # =================================================
-        # HEADER
-        # =================================================
-
-        logger.info(
-            "=========================================="
-        )
-
-        logger.info(
-            "GENERATING DAILY PERFORMANCE"
-        )
-
-        logger.info(
-            "Trading date: %s",
-            trading_date,
-        )
-
-        logger.info(
-            "Performance time: %s",
-            now.strftime(
-                "%d-%m-%Y %H:%M:%S WIB"
-            ),
-        )
-
-
-        # =================================================
-        # SEND
-        # =================================================
-
-        success = False
-
-
-        try:
-
-            success = await send_daily_performance(
-                bot,
-                target_date=trading_date,
-            )
-
-        except Exception:
-
-            logger.exception(
-                "Performance send error."
-            )
-
-            success = False
-
-
-        # =================================================
-        # SUCCESS
-        # =================================================
-
-        if success:
-
-            _last_performance_date = (
-                trading_date
-            )
-
-            logger.info(
-                "DAILY PERFORMANCE TERKIRIM."
-            )
-
-        else:
-
-            logger.error(
-                "DAILY PERFORMANCE GAGAL TERKIRIM."
-            )
-
-
-    finally:
-
-        _performance_running = False
-
-
-# =========================================================
-# SCHEDULER
+# MAIN SCHEDULER
 # =========================================================
 
 async def signal_scheduler(
@@ -966,7 +1129,11 @@ async def signal_scheduler(
     )
 
     logger.info(
-        "Signal       : 07:00 - 02:00 WIB"
+        "Signal       : 07:00 - 23:00"
+    )
+
+    logger.info(
+        "Extended     : 00:00 - 02:00"
     )
 
     logger.info(
@@ -982,11 +1149,12 @@ async def signal_scheduler(
     )
 
     logger.info(
-        "Pending      : MAX 20 MENIT"
+        "Entry        : MAX 20 MINUTES"
     )
 
     logger.info(
-        "Timeframe    : M5 Structure + M1 Entry"
+        "Performance Channel: %s",
+        PERFORMANCE_CHANNEL_ID,
     )
 
     logger.info(
@@ -1008,69 +1176,11 @@ async def signal_scheduler(
 
 
             # =================================================
-            # PERFORMANCE
-            # =================================================
-
-            if is_performance_hour(
-                now
-            ):
-
-                await process_performance(
-                    bot
-                )
-
-
-                # Hindari menjalankan loop berkali-kali
-                # pada menit 04:00.
-
-                await asyncio.sleep(
-                    60
-                )
-
-                continue
-
-
-            # =================================================
             # NEXT EVENT
             # =================================================
 
-            next_signal = (
-                next_signal_time()
-            )
+            next_run = next_event_time()
 
-            next_performance = (
-                next_performance_time()
-            )
-
-
-            # =================================================
-            # PILIH EVENT TERDEKAT
-            # =================================================
-
-            if next_performance < next_signal:
-
-                next_run = (
-                    next_performance
-                )
-
-                event_type = (
-                    "PERFORMANCE"
-                )
-
-            else:
-
-                next_run = (
-                    next_signal
-                )
-
-                event_type = (
-                    "SIGNAL"
-                )
-
-
-            # =================================================
-            # WAIT
-            # =================================================
 
             wait_seconds = (
                 next_run - now
@@ -1084,15 +1194,12 @@ async def signal_scheduler(
                 ),
             )
 
-
             logger.info(
-                "NEXT %s: %s",
-                event_type,
+                "NEXT EVENT: %s",
                 next_run.strftime(
                     "%d-%m-%Y %H:%M WIB"
                 ),
             )
-
 
             logger.info(
                 "WAIT: %.1f detik",
@@ -1102,6 +1209,10 @@ async def signal_scheduler(
                 ),
             )
 
+
+            # =================================================
+            # WAIT
+            # =================================================
 
             await asyncio.sleep(
                 max(
@@ -1129,15 +1240,32 @@ async def signal_scheduler(
 
 
             # =================================================
-            # PERFORMANCE
+            # ONLY MINUTE 00
             # =================================================
 
-            if is_performance_hour(
-                check_time
+            if check_time.minute != 0:
+
+                logger.warning(
+                    "Wake-up bukan menit 00."
+                )
+
+                continue
+
+
+            # =================================================
+            # PERFORMANCE 04:00
+            # =================================================
+
+            if check_time.hour == (
+                PERFORMANCE_HOUR
             ):
 
-                await process_performance(
+                await send_daily_performance(
                     bot
+                )
+
+                await asyncio.sleep(
+                    2
                 )
 
                 continue
@@ -1147,12 +1275,8 @@ async def signal_scheduler(
             # SIGNAL
             # =================================================
 
-            if (
-                check_time.minute == 0
-                and
-                is_signal_hour(
-                    check_time
-                )
+            if is_signal_hour(
+                check_time
             ):
 
                 await process_signal(
@@ -1164,6 +1288,15 @@ async def signal_scheduler(
                 )
 
                 continue
+
+
+            # =================================================
+            # NOTHING
+            # =================================================
+
+            logger.info(
+                "Tidak ada event pada jam ini."
+            )
 
 
         # =====================================================
@@ -1200,11 +1333,6 @@ async def signal_scheduler(
 
 if __name__ == "__main__":
 
-    now = datetime.now(
-        WIB
-    )
-
-
     print(
         "=========================================="
     )
@@ -1215,6 +1343,11 @@ if __name__ == "__main__":
 
     print(
         "=========================================="
+    )
+
+
+    now = datetime.now(
+        WIB
     )
 
 
@@ -1251,14 +1384,6 @@ if __name__ == "__main__":
 
 
     print(
-        "TRADING DATE PERFORMANCE:",
-        get_performance_trading_date(
-            now
-        )
-    )
-
-
-    print(
         "NEXT SIGNAL:",
         next_signal_time().strftime(
             "%d-%m-%Y %H:%M WIB"
@@ -1267,8 +1392,8 @@ if __name__ == "__main__":
 
 
     print(
-        "NEXT PERFORMANCE:",
-        next_performance_time().strftime(
+        "NEXT EVENT:",
+        next_event_time().strftime(
             "%d-%m-%Y %H:%M WIB"
         )
     )
