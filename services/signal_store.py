@@ -12,13 +12,12 @@ from typing import Dict, Optional, Tuple
 
 _store: Dict[str, Tuple[str, float]] = {}
 
-# Detail disimpan max 6 jam (cukup untuk signal + pending timeout)
-TTL_SECONDS = 6 * 60 * 60
+TTL_SECONDS = 6 * 60 * 60  # 6 jam
 
 
 def save_detail(detail_text: str) -> str:
     _cleanup()
-    signal_id = uuid.uuid4().hex[:12]  # pendek, muat di callback_data (max 64 byte)
+    signal_id = uuid.uuid4().hex[:12]
     _store[signal_id] = (detail_text, time.time())
     return signal_id
 
