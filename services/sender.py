@@ -1,8 +1,8 @@
 """
 services/sender.py
 
-Telegram Signal Sender
-======================
+Telegram Signal Sender (aiogram)
+=================================
 """
 
 import asyncio
@@ -10,7 +10,7 @@ import logging
 
 from typing import Any, Dict
 
-from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 
 from services.membership import get_active_members
 from services.signal_builder import (
@@ -55,7 +55,9 @@ async def send_signal_to_members(bot, signal_text) -> Dict[str, Any]:
         detail_text = format_signal_detail(signal_text)
         signal_id = save_detail(detail_text)
         reply_markup = InlineKeyboardMarkup(
-            [[InlineKeyboardButton("📊 Detail Analisa", callback_data=f"detail:{signal_id}")]]
+            inline_keyboard=[
+                [InlineKeyboardButton(text="📊 Detail Analisa", callback_data=f"detail:{signal_id}")]
+            ]
         )
 
     try:
