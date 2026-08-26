@@ -3,6 +3,13 @@ services/sender.py
 
 Telegram Signal Sender (aiogram)
 =================================
+
+Fungsi:
+- Mengirim signal ke member aktif
+- Menyimpan signal short + detail
+- Tombol Show / Hide Detail Analisa
+- Tidak mengirim pesan baru ketika Detail diklik
+- Retry Google Sheets
 """
 
 import asyncio
@@ -10,15 +17,22 @@ import logging
 
 from typing import Any, Dict
 
-from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
+from aiogram.types import (
+    InlineKeyboardButton,
+    InlineKeyboardMarkup,
+)
 
 from services.membership import get_active_members
+
 from services.signal_builder import (
     TradeSignal,
     format_signal_short,
     format_signal_detail,
 )
-from services.signal_store import save_detail
+
+from services.signal_store import (
+    save_signal,
+)
 
 
 logger = logging.getLogger(__name__)
@@ -28,10 +42,17 @@ logger = logging.getLogger(__name__)
 # CONFIG
 # =====================================================
 
-SEND_DELAY = 0.05
+# Delay antar member.
+# Sedikit lebih aman daripada 0.05 detik.
+SEND_DELAY = 0.15
+
 PARSE_MODE = "Markdown"
 
-# Retry tambahan jika Google Sheets sedang bermasalah
+
+# =====================================================
+# GOOGLE SHEETS RETRY
+# =====================================================
+
 MEMBER_RETRY_COUNT = 3
 MEMBER_RETRY_DELAY = 2
 
@@ -42,14 +63,41 @@ MEMBER_RETRY_DELAY = 2
 
 def format_trade_signal(signal) -> str:
 
-    if isinstance(signal, str):
+    # =================================================
+    # SUDAH STRING
+    # =================================================
+
+    if isinstance(
+        signal,
+        str
+    ):
+
         return signal
 
-    if isinstance(signal, TradeSignal):
-        return format_signal_short(signal)
+
+    # =================================================
+    # TradeSignal
+    # =================================================
+
+    if isinstance(
+        signal,
+        TradeSignal
+    ):
+
+        return format_signal_short(
+            signal
+        )
+
+
+    # =================================================
+    # OBJECT LAIN
+    # =================================================
 
     try:
-        return format_signal_short(signal)
+
+        return format_signal_short(
+            signal
+        )
 
     except Exception:
 
@@ -58,6 +106,28 @@ def format_trade_signal(signal) -> str:
         )
 
         raise
+
+
+# =====================================================
+# KEYBOARD DETAIL
+# =====================================================
+
+def create_detail_keyboard(
+    signal_id: str,
+) -> InlineKeyboardMarkup:
+
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text="📊 Detail Analisa",
+                    callback_data=(
+                        f"detail:{signal_id}"
+                    ),
+                )
+            ]
+        ]
+    )
 
 
 # =====================================================
@@ -85,21 +155,23 @@ async def get_members_for_sending():
                     "Daftar member berhasil diambil | "
                     "attempt=%s | members=%s",
                     attempt,
-                    len(members)
+                    len(members),
                 )
 
                 return members
 
+
             # ==========================================
-            # GOOGLE SHEETS ERROR
+            # GOOGLE SHEETS BELUM TERSEDIA
             # ==========================================
 
             logger.warning(
                 "Google Sheets belum tersedia | "
                 "attempt=%s/%s",
                 attempt,
-                MEMBER_RETRY_COUNT
+                MEMBER_RETRY_COUNT,
             )
+
 
         except Exception:
 
@@ -107,8 +179,9 @@ async def get_members_for_sending():
                 "Error mengambil active members | "
                 "attempt=%s/%s",
                 attempt,
-                MEMBER_RETRY_COUNT
+                MEMBER_RETRY_COUNT,
             )
+
 
         # ==============================================
         # RETRY
@@ -117,15 +190,19 @@ async def get_members_for_sending():
         if attempt < MEMBER_RETRY_COUNT:
 
             delay = (
-                MEMBER_RETRY_DELAY * attempt
+                MEMBER_RETRY_DELAY
+                * attempt
             )
 
             logger.info(
                 "Retry mengambil member dalam %s detik...",
+                delay,
+            )
+
+            await asyncio.sleep(
                 delay
             )
 
-            await asyncio.sleep(delay)
 
     # =================================================
     # SEMUA RETRY GAGAL
@@ -133,19 +210,19 @@ async def get_members_for_sending():
 
     logger.error(
         "Gagal mengambil daftar member setelah %s percobaan.",
-        MEMBER_RETRY_COUNT
+        MEMBER_RETRY_COUNT,
     )
 
     return None
 
 
 # =====================================================
-# SEND SIGNAL
+# SEND SIGNAL TO MEMBERS
 # =====================================================
 
 async def send_signal_to_members(
     bot,
-    signal_text
+    signal_text,
 ) -> Dict[str, Any]:
 
     # =================================================
@@ -161,15 +238,30 @@ async def send_signal_to_members(
         return {
             "success": 0,
             "failed": 0,
-            "total": 0
+            "total": 0,
         }
 
 
     # =================================================
-    # SIAPKAN DETAIL ANALISA
+    # VARIABLE
     # =================================================
 
     reply_markup = None
+
+    signal_id = None
+
+
+    # =================================================
+    # TRADE SIGNAL
+    #
+    # Simpan:
+    #
+    # signal short
+    # +
+    # detail analisa
+    #
+    # menggunakan ID yang sama.
+    # =================================================
 
     if isinstance(
         signal_text,
@@ -178,24 +270,54 @@ async def send_signal_to_members(
 
         try:
 
+            # ==========================================
+            # FORMAT SIGNAL SHORT
+            # ==========================================
+
+            short_text = format_signal_short(
+                signal_text
+            )
+
+
+            # ==========================================
+            # FORMAT DETAIL
+            # ==========================================
+
             detail_text = format_signal_detail(
                 signal_text
             )
 
-            signal_id = save_detail(
-                detail_text
+
+            # ==========================================
+            # SAVE SHORT + DETAIL
+            # ==========================================
+
+            signal_id = save_signal(
+
+                short_text,
+
+                detail_text,
+
             )
 
-            reply_markup = InlineKeyboardMarkup(
-                inline_keyboard=[
-                    [
-                        InlineKeyboardButton(
-                            text="📊 Detail Analisa",
-                            callback_data=f"detail:{signal_id}"
-                        )
-                    ]
-                ]
+
+            # ==========================================
+            # CREATE BUTTON
+            # ==========================================
+
+            reply_markup = (
+                create_detail_keyboard(
+                    signal_id
+                )
             )
+
+
+            logger.info(
+                "Signal detail disimpan | "
+                "signal_id=%s",
+                signal_id,
+            )
+
 
         except Exception:
 
@@ -203,7 +325,11 @@ async def send_signal_to_members(
                 "Gagal membuat Detail Analisa."
             )
 
-            # Tidak menggagalkan signal utama.
+            # ==========================================
+            # DETAIL ERROR TIDAK BOLEH MENGGAGALKAN
+            # SIGNAL UTAMA
+            # ==========================================
+
             reply_markup = None
 
 
@@ -226,7 +352,7 @@ async def send_signal_to_members(
         return {
             "success": 0,
             "failed": 0,
-            "total": 0
+            "total": 0,
         }
 
 
@@ -241,15 +367,19 @@ async def send_signal_to_members(
 
         logger.error(
             "Signal bukan string: %s",
-            type(signal_text)
+            type(signal_text),
         )
 
         return {
             "success": 0,
             "failed": 0,
-            "total": 0
+            "total": 0,
         }
 
+
+    # =================================================
+    # SIGNAL KOSONG
+    # =================================================
 
     if not signal_text.strip():
 
@@ -260,7 +390,7 @@ async def send_signal_to_members(
         return {
             "success": 0,
             "failed": 0,
-            "total": 0
+            "total": 0,
         }
 
 
@@ -272,7 +402,7 @@ async def send_signal_to_members(
 
 
     # =================================================
-    # GOOGLE SHEETS BENAR-BENAR ERROR
+    # GOOGLE SHEETS ERROR
     # =================================================
 
     if members is None:
@@ -287,12 +417,12 @@ async def send_signal_to_members(
             "failed": 0,
             "total": 0,
             "spreadsheet_error": True,
-            "retry": True
+            "retry": True,
         }
 
 
     # =================================================
-    # GOOGLE SHEETS NORMAL TAPI TIDAK ADA MEMBER
+    # TIDAK ADA MEMBER
     # =================================================
 
     if not members:
@@ -305,7 +435,7 @@ async def send_signal_to_members(
         return {
             "success": 0,
             "failed": 0,
-            "total": 0
+            "total": 0,
         }
 
 
@@ -313,15 +443,22 @@ async def send_signal_to_members(
     # TOTAL MEMBER
     # =================================================
 
-    total = len(members)
+    total = len(
+        members
+    )
 
     success = 0
+
     failed = 0
 
 
+    # =================================================
+    # LOG
+    # =================================================
+
     logger.info(
         "Mulai mengirim signal ke %s member aktif.",
-        total
+        total,
     )
 
 
@@ -330,6 +467,10 @@ async def send_signal_to_members(
     # =================================================
 
     for member in members:
+
+        # =============================================
+        # GET TELEGRAM ID
+        # =============================================
 
         telegram_id = member.get(
             "telegram_id"
@@ -344,7 +485,7 @@ async def send_signal_to_members(
 
             logger.warning(
                 "Telegram ID kosong: %s",
-                member
+                member,
             )
 
             failed += 1
@@ -364,12 +505,12 @@ async def send_signal_to_members(
 
         except (
             ValueError,
-            TypeError
+            TypeError,
         ):
 
             logger.warning(
                 "Telegram ID tidak valid: %s",
-                telegram_id
+                telegram_id,
             )
 
             failed += 1
@@ -397,11 +538,13 @@ async def send_signal_to_members(
 
             )
 
+
             success += 1
+
 
             logger.info(
                 "Signal TERKIRIM → %s",
-                telegram_id
+                telegram_id,
             )
 
 
@@ -412,7 +555,7 @@ async def send_signal_to_members(
             logger.error(
                 "Signal GAGAL → %s | %s",
                 telegram_id,
-                repr(e)
+                repr(e),
             )
 
 
@@ -437,10 +580,14 @@ async def send_signal_to_members(
 
         "failed": failed,
 
-        "total": total
+        "total": total,
 
     }
 
+
+    # =================================================
+    # LOG RESULT
+    # =================================================
 
     logger.info(
         "Pengiriman signal selesai | "
@@ -450,7 +597,7 @@ async def send_signal_to_members(
 
         failed,
 
-        total
+        total,
     )
 
 
