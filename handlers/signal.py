@@ -1,5 +1,10 @@
 from aiogram import Router, F
-from aiogram.types import Message
+from aiogram.types import (
+    Message,
+    CallbackQuery,
+    InlineKeyboardButton,
+    InlineKeyboardMarkup,
+)
 from aiogram.filters import Command
 import asyncio
 import logging
@@ -19,8 +24,14 @@ from services.scheduler import (
 
 from services.signal_builder import (
     generate_signal,
-    format_signal_message,
+    format_signal_short,
+    format_signal_detail,
     NoTradeSignal,
+)
+
+from services.signal_store import (
+    save_detail,
+    get_detail,
 )
 
 
@@ -129,7 +140,7 @@ async def manual_signal(
 
         return
 
-    except Exception as e:
+    except Exception:
 
         logger.exception(
             "ERROR GENERATE MANUAL SIGNAL"
@@ -154,37 +165,20 @@ async def manual_signal(
         "entry=%s | "
         "order=%s | "
         "probability=%s%%",
-        getattr(
-            signal,
-            "bias",
-            "-",
-        ),
-        getattr(
-            signal,
-            "entry_price",
-            "-",
-        ),
-        getattr(
-            signal,
-            "order_type",
-            "-",
-        ),
-        getattr(
-            signal,
-            "probability",
-            "-",
-        ),
+        getattr(signal, "bias", "-"),
+        getattr(signal, "entry_price", "-"),
+        getattr(signal, "order_type", "-"),
+        getattr(signal, "probability", "-"),
     )
 
     # =====================================================
-    # FORMAT TradeSignal -> TEXT
+    # FORMAT TradeSignal -> TEXT SHORT + DETAIL
     # =====================================================
 
     try:
 
-        signal_text = format_signal_message(
-            signal
-        )
+        signal_text = format_signal_short(signal)
+        detail_text = format_signal_detail(signal)
 
     except Exception:
 
@@ -200,6 +194,23 @@ async def manual_signal(
         return
 
     # =====================================================
+    # SIMPAN DETAIL + SIAPKAN TOMBOL
+    # =====================================================
+
+    signal_id = save_detail(detail_text)
+
+    reply_markup = InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text="📊 Detail Analisa",
+                    callback_data=f"detail:{signal_id}",
+                )
+            ]
+        ]
+    )
+
+    # =====================================================
     # SEND SIGNAL
     # =====================================================
 
@@ -208,6 +219,7 @@ async def manual_signal(
         await message.answer(
             signal_text,
             parse_mode="Markdown",
+            reply_markup=reply_markup,
         )
 
         logger.info(
@@ -221,7 +233,7 @@ async def manual_signal(
         )
 
         # =================================================
-        # FALLBACK TANPA MARKDOWN
+        # FALLBACK TANPA MARKDOWN & TOMBOL
         # =================================================
 
         try:
@@ -234,6 +246,57 @@ async def manual_signal(
 
             logger.exception(
                 "FALLBACK SEND SIGNAL JUGA GAGAL."
+            )
+
+
+# =========================================================
+# TOMBOL "DETAIL ANALISA"
+# =========================================================
+
+@router.callback_query(
+    F.data.startswith("detail:")
+)
+async def handle_detail_callback(
+    callback: CallbackQuery
+):
+
+    await callback.answer()  # wajib, biar tombol tidak "loading" terus
+
+    signal_id = callback.data.split(":", 1)[1]
+
+    detail_text = get_detail(signal_id)
+
+    if detail_text is None:
+
+        await callback.message.answer(
+            "⚠️ Detail analisa sudah kadaluarsa atau tidak ditemukan."
+        )
+
+        return
+
+    try:
+
+        await callback.message.answer(
+            detail_text,
+            parse_mode="Markdown",
+        )
+
+    except Exception:
+
+        logger.exception(
+            "ERROR SEND DETAIL ANALISA"
+        )
+
+        try:
+
+            await callback.message.answer(
+                detail_text,
+            )
+
+        except Exception:
+
+            logger.exception(
+                "FALLBACK SEND DETAIL JUGA GAGAL."
             )
 
 
