@@ -6,6 +6,7 @@ from aiogram.types import (
     InlineKeyboardMarkup,
 )
 from aiogram.filters import Command
+
 import asyncio
 import logging
 
@@ -44,10 +45,12 @@ logger = logging.getLogger(
 
 
 # =========================================================
-# KEYBOARD
+# KEYBOARD - SHOW DETAIL
 # =========================================================
 
-def detail_keyboard(signal_id: str):
+def detail_keyboard(
+    signal_id: str,
+) -> InlineKeyboardMarkup:
 
     return InlineKeyboardMarkup(
         inline_keyboard=[
@@ -61,7 +64,13 @@ def detail_keyboard(signal_id: str):
     )
 
 
-def hide_detail_keyboard(signal_id: str):
+# =========================================================
+# KEYBOARD - HIDE DETAIL
+# =========================================================
+
+def hide_detail_keyboard(
+    signal_id: str,
+) -> InlineKeyboardMarkup:
 
     return InlineKeyboardMarkup(
         inline_keyboard=[
@@ -83,7 +92,7 @@ def hide_detail_keyboard(signal_id: str):
     Command("signal")
 )
 async def manual_signal(
-    message: Message
+    message: Message,
 ):
 
     username = (
@@ -104,6 +113,7 @@ async def manual_signal(
 
         return
 
+
     # =====================================================
     # CHECK ADMIN
     # =====================================================
@@ -122,6 +132,7 @@ async def manual_signal(
 
         return
 
+
     # =====================================================
     # LOG
     # =====================================================
@@ -131,31 +142,39 @@ async def manual_signal(
         username,
     )
 
+
     # =====================================================
     # INFO PROCESSING
     # =====================================================
 
     await message.answer(
+
         "⏳ *Sedang menganalisa XAUUSD...*\n\n"
         "M5 → SMC Structure\n"
         "M1 → Entry Timing\n"
         "OB / FVG / Liquidity\n"
         "Risk Management",
+
         parse_mode="Markdown",
+
     )
+
 
     # =====================================================
     # GENERATE SIGNAL
     #
-    # Manual /signal:
-    # menggunakan 12 candle M5 CLOSED
+    # Manual:
+    # 12 candle M5 CLOSED
     # =====================================================
 
     try:
 
         signal = await asyncio.to_thread(
+
             generate_signal,
+
             structure_candle_count=12,
+
         )
 
     except NoTradeSignal as e:
@@ -166,9 +185,12 @@ async def manual_signal(
         )
 
         await message.answer(
+
             "⚠️ *NO TRADE*\n\n"
             f"{str(e)}",
+
             parse_mode="Markdown",
+
         )
 
         return
@@ -180,32 +202,59 @@ async def manual_signal(
         )
 
         await message.answer(
+
             "❌ *Gagal membuat signal.*\n\n"
             "Terjadi error pada engine analisa.\n"
             "Silakan coba kembali.",
+
             parse_mode="Markdown",
+
         )
 
         return
+
 
     # =====================================================
     # LOG HASIL
     # =====================================================
 
     logger.info(
+
         "MANUAL SIGNAL CREATED | "
         "bias=%s | "
         "entry=%s | "
         "order=%s | "
         "probability=%s%%",
-        getattr(signal, "bias", "-"),
-        getattr(signal, "entry_price", "-"),
-        getattr(signal, "order_type", "-"),
-        getattr(signal, "probability", "-"),
+
+        getattr(
+            signal,
+            "bias",
+            "-",
+        ),
+
+        getattr(
+            signal,
+            "entry_price",
+            "-",
+        ),
+
+        getattr(
+            signal,
+            "order_type",
+            "-",
+        ),
+
+        getattr(
+            signal,
+            "probability",
+            "-",
+        ),
+
     )
 
+
     # =====================================================
-    # FORMAT TradeSignal
+    # FORMAT SIGNAL
     # =====================================================
 
     try:
@@ -225,29 +274,52 @@ async def manual_signal(
         )
 
         await message.answer(
+
             "❌ Signal berhasil dianalisa, "
             "tetapi gagal memformat pesan Telegram."
+
         )
 
         return
 
+
     # =====================================================
-    # SIMPAN DETAIL
+    # SIMPAN SIGNAL + DETAIL
+    #
+    # Keduanya menggunakan signal_id yang sama.
+    #
+    # signal_id
+    # ├── signal_text
+    # └── detail_text
     # =====================================================
 
     try:
 
-        signal_id = save_detail(
-            detail_text
+        signal_id = save_signal(
+
+            signal_text,
+
+            detail_text,
+
+        )
+
+        logger.info(
+
+            "SIGNAL STORE SAVED | "
+            "signal_id=%s",
+
+            signal_id,
+
         )
 
     except Exception:
 
         logger.exception(
-            "ERROR SAVE DETAIL ANALISA"
+            "ERROR SAVE SIGNAL + DETAIL"
         )
 
         signal_id = None
+
 
     # =====================================================
     # SIAPKAN TOMBOL
@@ -261,6 +333,7 @@ async def manual_signal(
             signal_id
         )
 
+
     # =====================================================
     # SEND SIGNAL
     # =====================================================
@@ -268,9 +341,13 @@ async def manual_signal(
     try:
 
         await message.answer(
+
             signal_text,
+
             parse_mode="Markdown",
+
             reply_markup=reply_markup,
+
         )
 
         logger.info(
@@ -290,8 +367,11 @@ async def manual_signal(
         try:
 
             await message.answer(
+
                 signal_text,
+
                 reply_markup=reply_markup,
+
             )
 
         except Exception:
@@ -302,16 +382,19 @@ async def manual_signal(
 
 
 # =========================================================
-# TOMBOL "DETAIL ANALISA"
+# SHOW DETAIL ANALISA
 #
-# SHOW DETAIL PADA PESAN YANG SAMA
+# PENTING:
+# Tidak mengirim pesan baru.
+#
+# Pesan signal lama diedit menjadi detail.
 # =========================================================
 
 @router.callback_query(
     F.data.startswith("detail:")
 )
 async def handle_detail_callback(
-    callback: CallbackQuery
+    callback: CallbackQuery,
 ):
 
     # =====================================================
@@ -319,6 +402,7 @@ async def handle_detail_callback(
     # =====================================================
 
     await callback.answer()
+
 
     # =====================================================
     # VALIDASI MESSAGE
@@ -332,14 +416,16 @@ async def handle_detail_callback(
 
         return
 
+
     # =====================================================
     # AMBIL SIGNAL ID
     # =====================================================
 
     signal_id = callback.data.split(
         ":",
-        1
+        1,
     )[1]
+
 
     # =====================================================
     # AMBIL DETAIL
@@ -349,14 +435,28 @@ async def handle_detail_callback(
         signal_id
     )
 
+
     if detail_text is None:
 
+        logger.warning(
+
+            "Detail analisa tidak ditemukan | "
+            "signal_id=%s",
+
+            signal_id,
+
+        )
+
         await callback.answer(
-            "⚠️ Detail analisa tidak ditemukan.",
+
+            "⚠️ Detail analisa sudah kadaluarsa.",
+
             show_alert=True,
+
         )
 
         return
+
 
     # =====================================================
     # EDIT PESAN YANG SAMA
@@ -377,8 +477,12 @@ async def handle_detail_callback(
         )
 
         logger.info(
-            "DETAIL ANALISA SHOW | signal_id=%s",
+
+            "DETAIL ANALISA SHOW | "
+            "signal_id=%s",
+
             signal_id,
+
         )
 
     except Exception:
@@ -411,16 +515,20 @@ async def handle_detail_callback(
 
 
 # =========================================================
-# TOMBOL "HIDE DETAIL"
+# HIDE DETAIL ANALISA
 #
-# KEMBALIKAN KE SIGNAL AWAL
+# PENTING:
+# Tidak mengirim pesan baru.
+#
+# Pesan detail lama dikembalikan menjadi
+# signal short/original.
 # =========================================================
 
 @router.callback_query(
     F.data.startswith("hide:")
 )
 async def handle_hide_callback(
-    callback: CallbackQuery
+    callback: CallbackQuery,
 ):
 
     # =====================================================
@@ -428,6 +536,7 @@ async def handle_hide_callback(
     # =====================================================
 
     await callback.answer()
+
 
     # =====================================================
     # VALIDASI MESSAGE
@@ -441,73 +550,47 @@ async def handle_hide_callback(
 
         return
 
+
     # =====================================================
     # AMBIL SIGNAL ID
     # =====================================================
 
     signal_id = callback.data.split(
         ":",
-        1
+        1,
     )[1]
 
+
     # =====================================================
-    # AMBIL DATA DETAIL
-    #
-    # Kita mengambil signal original dari storage.
+    # AMBIL SIGNAL ORIGINAL
     # =====================================================
 
-    detail_text = get_detail(
+    signal_text = get_signal(
         signal_id
     )
 
-    if detail_text is None:
 
-        await callback.answer(
-            "⚠️ Signal sudah tidak tersedia.",
-            show_alert=True,
-        )
-
-        return
-
-    # =====================================================
-    # AMBIL SIGNAL SHORT DARI STORAGE
-    # =====================================================
-
-    try:
-
-        from services.signal_store import (
-            get_signal
-        )
-
-        signal_text = get_signal(
-            signal_id
-        )
-
-    except Exception:
-
-        signal_text = None
-
-    # =====================================================
-    # JIKA STORAGE BELUM MENYIMPAN SIGNAL SHORT
-    # =====================================================
-
-    if not signal_text:
+    if signal_text is None:
 
         logger.warning(
+
             "Signal short tidak ditemukan | "
             "signal_id=%s",
+
             signal_id,
+
         )
 
-        # Jangan mengirim pesan baru.
-        # Berikan alert saja.
-
         await callback.answer(
-            "⚠️ Signal utama tidak dapat dipulihkan.",
+
+            "⚠️ Signal utama sudah kadaluarsa.",
+
             show_alert=True,
+
         )
 
         return
+
 
     # =====================================================
     # EDIT PESAN YANG SAMA
@@ -528,8 +611,12 @@ async def handle_hide_callback(
         )
 
         logger.info(
-            "DETAIL ANALISA HIDE | signal_id=%s",
+
+            "DETAIL ANALISA HIDE | "
+            "signal_id=%s",
+
             signal_id,
+
         )
 
     except Exception:
@@ -563,13 +650,19 @@ async def handle_hide_callback(
 
 # =========================================================
 # RECEIVE SIGNAL FROM OLD SOURCE GROUP
+#
+# Catatan:
+# Jalur ini menerima text biasa dari source group.
+#
+# Karena source group hanya memberikan text,
+# sistem Detail Analisa tidak dibuat di jalur ini.
 # =========================================================
 
 @router.message(
     F.chat.id == SOURCE_GROUP_ID
 )
 async def receive_signal(
-    message: Message
+    message: Message,
 ):
 
     print(
@@ -584,6 +677,7 @@ async def receive_signal(
         "======================"
     )
 
+
     # =====================================================
     # TRADING SESSION CHECK
     # =====================================================
@@ -595,6 +689,7 @@ async def receive_signal(
         )
 
         return
+
 
     # =====================================================
     # CHECK TEXT
@@ -608,11 +703,13 @@ async def receive_signal(
 
         return
 
+
     # =====================================================
     # GET SIGNAL
     # =====================================================
 
     signal_text = message.text
+
 
     print(
         "SIGNAL DITERUSKAN:"
@@ -622,16 +719,38 @@ async def receive_signal(
         signal_text
     )
 
+
     # =====================================================
     # GET ACTIVE MEMBERS
     # =====================================================
 
-    members = get_active_members()
+    try:
+
+        members = get_active_members()
+
+    except Exception:
+
+        logger.exception(
+            "Gagal mengambil active members."
+        )
+
+        return
+
+
+    if not members:
+
+        print(
+            "TIDAK ADA MEMBER AKTIF"
+        )
+
+        return
+
 
     print(
         "TOTAL MEMBER:",
-        len(members)
+        len(members),
     )
+
 
     # =====================================================
     # SEND TO MEMBERS
@@ -643,9 +762,11 @@ async def receive_signal(
             "telegram_id"
         )
 
+
         if not telegram_id:
 
             continue
+
 
         try:
 
@@ -655,7 +776,7 @@ async def receive_signal(
                     telegram_id
                 ),
 
-                text=signal_text
+                text=signal_text,
 
             )
 
@@ -663,6 +784,7 @@ async def receive_signal(
                 "TERKIRIM:",
                 telegram_id
             )
+
 
         except Exception as e:
 
