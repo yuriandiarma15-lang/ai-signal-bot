@@ -812,9 +812,22 @@ FUNDAMENTAL_NEWS_PER_UPDATE = _int_env(
 )
 
 
+# =====================================================
+# FIX: Sebelumnya 24 jam.
+#
+# Dari log produksi, banyak berita finansial yang
+# RELEVAN (Fed, Treasury, national debt) hanya
+# meleset tipis (24-25 jam) dari batas lama, sehingga
+# selalu ditolak TOO_OLD dan command /fundamental
+# jadi sering kosong.
+#
+# Dilonggarkan ke 36 jam supaya tidak terlalu ketat,
+# tapi tetap menolak berita yang benar-benar basi.
+# =====================================================
+
 FUNDAMENTAL_MAX_NEWS_AGE_HOURS = _int_env(
     "FUNDAMENTAL_MAX_NEWS_AGE_HOURS",
-    24
+    36
 )
 
 
@@ -977,9 +990,23 @@ NEWS_MAX_AGE_MINUTES = _int_env(
 )
 
 
+# =====================================================
+# FIX: Sebelumnya 10.
+#
+# Dengan pageSize=10 ke NewsAPI, query OR yang berisi
+# banyak keyword umum ("gold OR ... OR USD OR Fed ...")
+# sering "kehabisan slot" duluan oleh artikel yang
+# tidak relevan (mis. rilis paket PyPI yang kebetulan
+# menyebut kata umum).
+#
+# Dinaikkan ke 50 supaya kandidat lebih banyak dan
+# peluang menemukan berita gold yang relevan & fresh
+# jadi lebih tinggi. Tidak memengaruhi logic SMC.
+# =====================================================
+
 NEWS_FETCH_LIMIT = _int_env(
     "NEWS_FETCH_LIMIT",
-    10
+    50
 )
 
 
