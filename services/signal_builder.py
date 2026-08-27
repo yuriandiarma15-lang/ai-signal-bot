@@ -2711,57 +2711,57 @@ def generate_signal(
     )
 
 
-# =====================================================
-# STRUCTURE
-# =====================================================
+    # =====================================================
+    # STRUCTURE
+    # =====================================================
 
-structure_event = (
-    _get_structure_event(
-        m5_smc,
-        structure_candles,
+    structure_event = (
+        _get_structure_event(
+            m5_smc,
+            structure_candles,
+        )
     )
-)
 
-(
-    structure_low,
-    structure_high,
-) = _get_structure_range(
-    structure_candles,
-    structure_event,
-)
-
-
-# =====================================================
-# SWING
-# =====================================================
-
-(
-    swing_type,
-    swing_low,
-    swing_high,
-) = _classify_swings(
-    structure_candles
-)
+    (
+        structure_low,
+        structure_high,
+    ) = _get_structure_range(
+        structure_candles,
+        structure_event,
+    )
 
 
-# =====================================================
-# LIQUIDITY
-# =====================================================
+    # =====================================================
+    # SWING
+    # =====================================================
 
-(
-    liquidity_type,
-    liquidity_price,
-    liquidity_low,
-    liquidity_high,
-) = _get_liquidity(
-    structure_candles,
-    final_bias,
-)
+    (
+        swing_type,
+        swing_low,
+        swing_high,
+    ) = _classify_swings(
+        structure_candles
+    )
 
 
-# =====================================================
-# OB
-# =====================================================
+    # =====================================================
+    # LIQUIDITY
+    # =====================================================
+
+    (
+        liquidity_type,
+        liquidity_price,
+        liquidity_low,
+        liquidity_high,
+    ) = _get_liquidity(
+        structure_candles,
+        final_bias,
+    )
+
+
+    # =====================================================
+    # OB
+    # =====================================================
 
     (
         ob_low,
@@ -2815,15 +2815,15 @@ structure_event = (
     # ENTRY DESCRIPTION
     # =====================================================
 
-entry_type = (
-    _build_entry_description(
-        order_type=order_type,
-        is_pending=is_pending,
-        current_price=current_price,
-        entry_price=entry_price,
-        zone_type=zone_type,
+    entry_type = (
+        _build_entry_description(
+            order_type=order_type,
+            is_pending=is_pending,
+            current_price=current_price,
+            entry_price=entry_price,
+            zone_type=zone_type,
+        )
     )
-)
 
     # =====================================================
     # ENTRY REASON BANK
@@ -3916,42 +3916,42 @@ def format_signal_message(
 
 
         # ================================================
-# SIGNAL PALING ATAS
-# ================================================
+        # SIGNAL PALING ATAS
+        # ================================================
 
-"━━━━━━━━━━━━━━━━━━",
+        "━━━━━━━━━━━━━━━━━━",
 
-f"{arrow} *{direction_text} XAUUSD*",
+        f"{arrow} *{direction_text} XAUUSD*",
 
-(
-    f"🕐 *{datetime.now(WIB).strftime('%d-%m-%Y %H:%M')} WIB*"
-),
+        (
+            f"🕐 *{datetime.now(WIB).strftime('%d-%m-%Y %H:%M')} WIB*"
+        ),
 
-(
-    f"🏆 Probability tertinggi: "
-    f"*{sig.probability}%* "
-    f"→ *{direction_text}*"
-),
+        (
+            f"🏆 Probability tertinggi: "
+            f"*{sig.probability}%* "
+            f"→ *{direction_text}*"
+        ),
 
-"", 
+        "",
 
-(
-    f"🎯 ENTRY: "
-    f"`{_price_display(sig.entry_price)}`"
-),
+        (
+            f"🎯 ENTRY: "
+            f"`{_price_display(sig.entry_price)}`"
+        ),
 
-(
-    f"📌 ORDER: "
-    f"*{sig.order_type}*"
-),
+        (
+            f"📌 ORDER: "
+            f"*{sig.order_type}*"
+        ),
 
-"", 
+        "",
 
-instruction,
+        instruction,
 
-"━━━━━━━━━━━━━━━━━━",
+        "━━━━━━━━━━━━━━━━━━",
 
-"",
+        "",
 
         # ================================================
         # RISK
