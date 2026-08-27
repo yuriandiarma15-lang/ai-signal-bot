@@ -2084,17 +2084,19 @@ def _calculate_risk(
     # =====================================================
     # XAUUSD
     #
-    # 1 pip = 0.01
+    # Jarak SL/TP diambil dari config (SL_PIPS, TP1_PIPS,
+    # TP2_PIPS, SMC_PIP_VALUE), bukan hardcode.
     #
-    # SL  = 50 pip  = 0.50
-    # TP1 = 70 pip  = 0.70
-    # TP2 = 150 pip = 1.50
+    # Ini penting supaya angka pip yang DITAMPILKAN di
+    # pesan ("-50 pip", "+70 pip", dst — diambil dari
+    # SL_PIPS/TP1_PIPS/TP2_PIPS di config.py) SAMA dengan
+    # jarak harga yang benar-benar dipakai untuk hitung
+    # SL/TP di bawah ini.
     # =====================================================
 
-    SL_PRICE_DISTANCE = 0.50
-    TP1_PRICE_DISTANCE = 0.70
-    TP2_PRICE_DISTANCE = 1.50
-
+    SL_PRICE_DISTANCE = SL_PIPS * SMC_PIP_VALUE
+    TP1_PRICE_DISTANCE = TP1_PIPS * SMC_PIP_VALUE
+    TP2_PRICE_DISTANCE = TP2_PIPS * SMC_PIP_VALUE
     # =====================================================
     # BUY
     # =====================================================
