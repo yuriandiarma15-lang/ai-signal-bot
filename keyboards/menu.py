@@ -24,21 +24,21 @@ def member_menu(member):
     Membuat menu berdasarkan jenis membership.
 
     BASIC:
-        1 Bulan
-        MITRA HFM
-
-    PREMIUM:
-        6 Bulan
-        12 Bulan
-        Lifetime
-
-    Semua member ACTIVE mendapatkan:
         - AI SMC
         - Materi
 
-    Premium mendapatkan:
+    PREMIUM:
+        - AI SMC
         - Fundamental
         - Combined AI
+        - Materi
+
+    Semua tombol menggunakan:
+        callback_data
+    atau
+        url
+
+    Tidak menggunakan Text button.
     """
 
     buttons = []
@@ -110,20 +110,27 @@ def member_menu(member):
     # ADMIN
     # =====================================================
 
-    buttons.append([
+    admin_username = str(
+        ADMIN_USERNAME or ""
+    ).strip().replace(
+        "@",
+        ""
+    )
 
-        InlineKeyboardButton(
 
-            text="📞 Hubungi Admin",
+    if admin_username:
 
-            url=(
-                f"https://t.me/"
-                f"{ADMIN_USERNAME.replace('@', '')}"
+        buttons.append([
+
+            InlineKeyboardButton(
+                text="📞 Hubungi Admin",
+                url=(
+                    f"https://t.me/"
+                    f"{admin_username}"
+                )
             )
 
-        )
-
-    ])
+        ])
 
 
     # =====================================================
@@ -144,18 +151,25 @@ def member_menu(member):
     # RENEW
     # =====================================================
 
-    buttons.append([
+    renew_url = str(
+        RENEW_BOT or ""
+    ).strip()
 
-        InlineKeyboardButton(
-            text="🔄 Perpanjang Membership",
-            url=RENEW_BOT
-        )
 
-    ])
+    if renew_url:
+
+        buttons.append([
+
+            InlineKeyboardButton(
+                text="🔄 Perpanjang Membership",
+                url=renew_url
+            )
+
+        ])
 
 
     # =====================================================
-    # RETURN KEYBOARD
+    # RETURN
     # =====================================================
 
     return InlineKeyboardMarkup(
