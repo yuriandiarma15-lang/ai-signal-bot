@@ -298,6 +298,16 @@ class TradeSignal:
 
     ob_high: Optional[float] = None
 
+    # =====================================================
+    # ANALYSIS-BASED SL/TP DISTANCE (DISPLAY)
+    # =====================================================
+
+    sl_pips: int = 0
+
+    tp1_pips: int = 0
+
+    tp2_pips: int = 0
+
 
 # =========================================================
 # EXCEPTION
@@ -2099,83 +2109,182 @@ def _determine_order_type(
 
 
 # =========================================================
-# RISK
+# RISK  (ANALYSIS-BASED, DENGAN BATAS AMAN)
+#
+# SL/TP1/TP2 dihitung dari:
+#   - lebar zona entry (OB/FVG/Demand/Supply)
+#   - volatilitas candle M5 terakhir (proxy ATR)
+#   - target struktur (swing high/low M5)
+#
+# TAPI dengan batas keamanan supaya jarak tidak liar:
+#   - SL DIJAMIN berada di antara SL_MIN_PIPS - SL_MAX_PIPS.
+#   - RR (TP1) dipilih dari daftar tetap RR_LEVELS,
+#     berdasarkan kekuatan sinyal (probability arah yang
+#     dipilih). Sinyal lebih kuat -> RR lebih tinggi.
+#   - TP2 = RR TP1 + RR2_EXTRA (tetap dari daftar yang sama,
+#     satu tingkat di atas RR1), supaya TP2 selalu lebih jauh
+#     dari TP1 tapi tidak melebihi rentang yang wajar.
 # =========================================================
+
+SL_MIN_PIPS = 40
+SL_MAX_PIPS = 70
+
+# Daftar RR yang boleh dipakai untuk TP1.
+# Dipilih berdasarkan kekuatan/probability sinyal.
+RR_LEVELS = [1.1, 1.2, 1.3, 1.4, 1.5]
+
+# Selisih RR yang ditambahkan untuk TP2 relatif ke RR1.
+RR2_EXTRA = 0.8
+
+
+def _select_rr1(
+    probability: int,
+) -> float:
+    """
+    Memilih RR (TP1) dari RR_LEVELS berdasarkan probability
+    arah sinyal yang terpilih.
+
+    Probability rendah (~50%) -> RR paling kecil (1.1).
+    Probability tinggi (~99%) -> RR paling besar (1.5).
+    """
+
+    probability = max(
+        50,
+        min(99, int(probability)),
+    )
+
+    span = 99 - 50
+
+    step = span / (len(RR_LEVELS) - 1)
+
+    idx = int(
+        round(
+            (probability - 50) / step
+        )
+    )
+
+    idx = max(
+        0,
+        min(len(RR_LEVELS) - 1, idx),
+    )
+
+    return RR_LEVELS[idx]
+
 
 def _calculate_risk(
     bias: str,
     entry_price: float,
+    zone_low: Optional[float] = None,
+    zone_high: Optional[float] = None,
+    candles: Optional[List[Candle]] = None,
+    swing_low: Optional[float] = None,
+    swing_high: Optional[float] = None,
+    probability: int = 50,
 ):
 
+    candles = candles or []
+
     # =====================================================
-    # XAUUSD
+    # VOLATILITAS (PROXY ATR)
     #
-    # Jarak SL/TP diambil dari config (SL_PIPS, TP1_PIPS,
-    # TP2_PIPS, SMC_PIP_VALUE), bukan hardcode.
-    #
-    # Ini penting supaya angka pip yang DITAMPILKAN di
-    # pesan ("-50 pip", "+70 pip", dst — diambil dari
-    # SL_PIPS/TP1_PIPS/TP2_PIPS di config.py) SAMA dengan
-    # jarak harga yang benar-benar dipakai untuk hitung
-    # SL/TP di bawah ini.
+    # Rata-rata range candle M5 terakhir dipakai sebagai
+    # dasar jarak SL, supaya SL tetap mengikuti kondisi
+    # market — tapi hasilnya tetap di-clamp di bawah.
     # =====================================================
 
-    SL_PRICE_DISTANCE = SL_PIPS * SMC_PIP_VALUE
-    TP1_PRICE_DISTANCE = TP1_PIPS * SMC_PIP_VALUE
-    TP2_PRICE_DISTANCE = TP2_PIPS * SMC_PIP_VALUE
+    ranges = [
+        (c.high - c.low)
+        for c in candles[-10:]
+        if (c.high - c.low) > 0
+    ]
+
+    atr = (
+        sum(ranges) / len(ranges)
+        if ranges
+        else _pips_to_price(
+            (SL_MIN_PIPS + SL_MAX_PIPS) / 2
+        )
+    )
+
     # =====================================================
-    # BUY
+    # JARAK SL DARI ANALISA (SEBELUM DI-CLAMP)
+    #
+    # Dasar jarak = jarak ke tepi zona entry (kalau ada)
+    # ditambah setengah ATR sebagai buffer noise, atau
+    # ATR penuh kalau zona tidak tersedia.
     # =====================================================
 
     if bias == "bullish":
 
-        sl = (
-            entry_price
-            - SL_PRICE_DISTANCE
+        zone_reference = (
+            zone_low
+            if zone_low is not None
+            else entry_price - atr
         )
 
-        tp1 = (
-            entry_price
-            + TP1_PRICE_DISTANCE
+        raw_risk = (
+            (entry_price - zone_reference)
+            + atr * 0.5
         )
-
-        tp2 = (
-            entry_price
-            + TP2_PRICE_DISTANCE
-        )
-
-    # =====================================================
-    # SELL
-    # =====================================================
 
     else:
 
-        sl = (
-            entry_price
-            + SL_PRICE_DISTANCE
+        zone_reference = (
+            zone_high
+            if zone_high is not None
+            else entry_price + atr
         )
 
-        tp1 = (
-            entry_price
-            - TP1_PRICE_DISTANCE
+        raw_risk = (
+            (zone_reference - entry_price)
+            + atr * 0.5
         )
 
-        tp2 = (
-            entry_price
-            - TP2_PRICE_DISTANCE
-        )
+    if raw_risk <= 0:
+        raw_risk = atr
 
     # =====================================================
-    # RISK
+    # CLAMP SL KE RENTANG 40 - 70 PIP
+    #
+    # Ini batas keras: berapa pun hasil analisa di atas,
+    # SL akhir TIDAK PERNAH lebih kecil dari SL_MIN_PIPS
+    # dan TIDAK PERNAH lebih besar dari SL_MAX_PIPS.
     # =====================================================
 
-    risk = abs(
-        entry_price
-        - sl
+    sl_min_price = _pips_to_price(SL_MIN_PIPS)
+    sl_max_price = _pips_to_price(SL_MAX_PIPS)
+
+    risk = max(
+        sl_min_price,
+        min(sl_max_price, raw_risk),
     )
 
     # =====================================================
-    # REWARD
+    # RR DARI ANALISA (KEKUATAN SINYAL) — DIBATASI DAFTAR
+    # =====================================================
+
+    rr1 = _select_rr1(probability)
+
+    rr2 = round(rr1 + RR2_EXTRA, 1)
+
+    # =====================================================
+    # SL / TP1 / TP2
+    # =====================================================
+
+    if bias == "bullish":
+
+        sl = entry_price - risk
+        tp1 = entry_price + risk * rr1
+        tp2 = entry_price + risk * rr2
+
+    else:
+
+        sl = entry_price + risk
+        tp1 = entry_price - risk * rr1
+        tp2 = entry_price - risk * rr2
+
+    # =====================================================
+    # RISK / REWARD AKTUAL
     # =====================================================
 
     reward_tp1 = abs(
@@ -2187,10 +2296,6 @@ def _calculate_risk(
         tp2
         - entry_price
     )
-
-    # =====================================================
-    # RR
-    # =====================================================
 
     rr_tp1 = (
         reward_tp1 / risk
@@ -2326,6 +2431,76 @@ def _build_educational_reason(
 
 
 # =========================================================
+# SIGNAL RATE LIMITER — 1 SIGNAL PER JAM
+#
+# CATATAN PENTING:
+# Cache ini disimpan di MEMORY proses (module-level
+# variable). Ini cukup untuk service yang berjalan terus
+# (long-running process / worker / bot polling).
+#
+# Kalau generate_signal() dipanggil dari lingkungan
+# serverless / setiap request selalu proses baru
+# (misal setiap panggilan = cold start baru), cache ini
+# TIDAK akan bertahan antar panggilan, dan rate-limit
+# jam-an harus dipindah ke penyimpanan persisten
+# (file/DB/Redis) di luar modul ini.
+# =========================================================
+
+SIGNAL_INTERVAL_MINUTES = 60
+
+_LAST_SIGNAL_CACHE = {
+    "signal": None,
+    "generated_at": None,
+}
+
+
+def _cache_is_fresh(
+    now: datetime,
+) -> bool:
+
+    generated_at = _LAST_SIGNAL_CACHE.get(
+        "generated_at"
+    )
+
+    if generated_at is None:
+        return False
+
+    elapsed_minutes = (
+        (now - generated_at).total_seconds()
+        / 60
+    )
+
+    return elapsed_minutes < SIGNAL_INTERVAL_MINUTES
+
+
+def get_cached_signal() -> Optional["TradeSignal"]:
+    """
+    Mengambil signal terakhir dari cache tanpa memicu
+    analisa baru. Berguna untuk endpoint/handler yang
+    hanya ingin menampilkan signal jam ini tanpa
+    ikut memutuskan apakah harus generate baru.
+    """
+
+    return _LAST_SIGNAL_CACHE.get("signal")
+
+
+def force_refresh_signal(
+    structure_candle_count: Optional[int] = None,
+) -> "TradeSignal":
+    """
+    Melewati rate-limiter dan memaksa analisa baru
+    walaupun belum genap 1 jam sejak signal terakhir.
+    Gunakan hanya untuk keperluan manual/testing.
+    """
+
+    _LAST_SIGNAL_CACHE["generated_at"] = None
+
+    return generate_signal(
+        structure_candle_count=structure_candle_count
+    )
+
+
+# =========================================================
 # GENERATE SIGNAL
 # =========================================================
 
@@ -2334,6 +2509,23 @@ def generate_signal(
 ) -> TradeSignal:
 
     now = datetime.now(WIB)
+
+    # =====================================================
+    # RATE LIMIT — 1 SIGNAL PER JAM
+    #
+    # Kalau signal terakhir masih "segar" (< 60 menit),
+    # kembalikan signal yang sama alih-alih menganalisa
+    # ulang. Ini mengurangi jumlah sinyal yang keluar
+    # secara drastis dan mencegah sinyal saling
+    # bertentangan dalam rentang waktu pendek.
+    # =====================================================
+
+    if (
+        _cache_is_fresh(now)
+        and _LAST_SIGNAL_CACHE["signal"] is not None
+    ):
+
+        return _LAST_SIGNAL_CACHE["signal"]
 
     # =====================================================
     # M5 OUTPUT
@@ -2955,7 +3147,24 @@ def generate_signal(
 
 
     # =====================================================
-    # RISK
+    # SWING — DIHITUNG DI SINI (SEBELUM RISK)
+    #
+    # Dipindah ke atas karena _calculate_risk sekarang
+    # butuh swing_low/swing_high sebagai target TP
+    # berbasis struktur, bukan lagi pip tetap.
+    # =====================================================
+
+    (
+        swing_type,
+        swing_low,
+        swing_high,
+    ) = _classify_swings(
+        structure_candles
+    )
+
+
+    # =====================================================
+    # RISK — ANALYSIS BASED
     # =====================================================
 
     (
@@ -2967,6 +3176,48 @@ def generate_signal(
     ) = _calculate_risk(
         bias=final_bias,
         entry_price=entry_price,
+        zone_low=zone_low,
+        zone_high=zone_high,
+        candles=recent_m5,
+        swing_low=swing_low,
+        swing_high=swing_high,
+        probability=(
+            probability_buy
+            if final_bias == "bullish"
+            else probability_sell
+        ),
+    )
+
+    # =====================================================
+    # SL/TP DISPLAY DISTANCE (PIP)
+    #
+    # Dihitung dari hasil analisa di atas, BUKAN dari
+    # SL_PIPS/TP1_PIPS/TP2_PIPS config lagi. Config hanya
+    # dipakai sebagai batas minimum di dalam _calculate_risk.
+    # =====================================================
+
+    sl_pips_actual = int(
+        round(
+            _price_to_pips(
+                abs(entry_price - sl)
+            )
+        )
+    )
+
+    tp1_pips_actual = int(
+        round(
+            _price_to_pips(
+                abs(tp1 - entry_price)
+            )
+        )
+    )
+
+    tp2_pips_actual = int(
+        round(
+            _price_to_pips(
+                abs(tp2 - entry_price)
+            )
+        )
     )
 
 
@@ -2987,19 +3238,6 @@ def generate_signal(
     ) = _get_structure_range(
         structure_candles,
         structure_event,
-    )
-
-
-    # =====================================================
-    # SWING
-    # =====================================================
-
-    (
-        swing_type,
-        swing_low,
-        swing_high,
-    ) = _classify_swings(
-        structure_candles
     )
 
 
@@ -3322,7 +3560,9 @@ def generate_signal(
 
     reasons.append(
         (
-            f"Risk/Reward dari entry: "
+            f"SL/TP dihitung dari analisa (zona entry + "
+            f"volatilitas candle + target swing), bukan "
+            f"pip tetap. Risk/Reward: "
             f"TP1 1:{rr_tp1:.2f}, "
             f"TP2 1:{rr_tp2:.2f}."
         )
@@ -3364,7 +3604,7 @@ def generate_signal(
     # RETURN
     # =====================================================
 
-    return TradeSignal(
+    signal = TradeSignal(
 
         timestamp=now,
 
@@ -3508,7 +3748,22 @@ def generate_signal(
         ob_low=ob_low,
 
         ob_high=ob_high,
+
+        sl_pips=sl_pips_actual,
+
+        tp1_pips=tp1_pips_actual,
+
+        tp2_pips=tp2_pips_actual,
     )
+
+    # =====================================================
+    # SIMPAN KE CACHE (RATE LIMIT 1 JAM)
+    # =====================================================
+
+    _LAST_SIGNAL_CACHE["signal"] = signal
+    _LAST_SIGNAL_CACHE["generated_at"] = now
+
+    return signal
 
 
 # =========================================================
@@ -3639,7 +3894,8 @@ def _wrap_reason(
 # - Tidak ada "tunggu turun/naik"
 # - Tidak menampilkan Market sekarang
 # - OB/FVG ditampilkan sebagai LOW RISK ZONE
-# - SL / TP tetap berdasarkan entry realtime
+# - SL / TP dihitung dari ANALISA (zona + volatilitas +
+#   target struktur), bukan pip tetap dari config.
 # =========================================================
 
 def format_signal_short(
@@ -3738,25 +3994,25 @@ def format_signal_short(
         "",
 
         # =============================================
-        # SL / TP
+        # SL / TP — ANALYSIS BASED
         # =============================================
 
         (
             f"🛑 SL  : "
             f"`{_price_display(sig.sl)}` "
-            f"(-{SL_PIPS} pip)"
+            f"(-{sig.sl_pips} pip)"
         ),
 
         (
             f"✅ TP1 : "
             f"`{_price_display(sig.tp1)}` "
-            f"(+{TP1_PIPS} pip)"
+            f"(+{sig.tp1_pips} pip)"
         ),
 
         (
             f"🏆 TP2 : "
             f"`{_price_display(sig.tp2)}` "
-            f"(+{TP2_PIPS} pip)"
+            f"(+{sig.tp2_pips} pip)"
         ),
 
         (
@@ -3876,6 +4132,34 @@ def format_signal_detail(
         (
             f"📌 Status zona      : "
             f"*{sig.fill_status}*"
+        ),
+
+        "",
+
+        # ================================================
+        # SL / TP — ANALYSIS BASED
+        # ================================================
+
+        "🎯 *SL / TP (ANALISA)*",
+
+        (
+            f"🛑 SL  : `{_price_display(sig.sl)}` "
+            f"(-{sig.sl_pips} pip)"
+        ),
+
+        (
+            f"✅ TP1 : `{_price_display(sig.tp1)}` "
+            f"(+{sig.tp1_pips} pip)"
+        ),
+
+        (
+            f"🏆 TP2 : `{_price_display(sig.tp2)}` "
+            f"(+{sig.tp2_pips} pip)"
+        ),
+
+        (
+            f"📐 RR  : TP1 1:{sig.rr_tp1:.2f} | "
+            f"TP2 1:{sig.rr_tp2:.2f}"
         ),
 
         "",
@@ -4085,6 +4369,11 @@ def format_signal_detail(
         (
             f"⏳ Pending timeout: "
             f"*{PENDING_ORDER_TIMEOUT_MINUTES} menit*"
+        ),
+
+        (
+            f"🕐 Interval signal: "
+            f"*{SIGNAL_INTERVAL_MINUTES} menit*"
         ),
     ]
 
@@ -4213,25 +4502,25 @@ def format_signal_message(
         "",
 
         # ================================================
-        # RISK
+        # RISK — ANALYSIS BASED
         # ================================================
 
         (
             f"🛑 SL  : "
             f"`{_price_display(sig.sl)}` "
-            f"(-{SL_PIPS} pip)"
+            f"(-{sig.sl_pips} pip)"
         ),
 
         (
             f"✅ TP1 : "
             f"`{_price_display(sig.tp1)}` "
-            f"(+{TP1_PIPS} pip)"
+            f"(+{sig.tp1_pips} pip)"
         ),
 
         (
             f"✅ TP2 : "
             f"`{_price_display(sig.tp2)}` "
-            f"(+{TP2_PIPS} pip)"
+            f"(+{sig.tp2_pips} pip)"
         ),
 
         (
@@ -4479,6 +4768,11 @@ def format_signal_message(
             f"*{PENDING_ORDER_TIMEOUT_MINUTES} menit*"
         ),
 
+        (
+            f"🕐 Interval signal: "
+            f"*{SIGNAL_INTERVAL_MINUTES} menit*"
+        ),
+
         "",
 
         (
@@ -4548,13 +4842,14 @@ def debug_signal(
         f"Liquidity Low     : {sig.liquidity_low}\n"
         f"Liquidity High    : {sig.liquidity_high}\n"
         f"M1 Confirm        : {sig.m1_confirmation}\n"
-        f"SL                : {sig.sl}\n"
-        f"TP1               : {sig.tp1}\n"
-        f"TP2               : {sig.tp2}\n"
+        f"SL                : {sig.sl} ({sig.sl_pips} pip)\n"
+        f"TP1               : {sig.tp1} ({sig.tp1_pips} pip)\n"
+        f"TP2               : {sig.tp2} ({sig.tp2_pips} pip)\n"
         f"RR TP1            : {sig.rr_tp1}\n"
         f"RR TP2            : {sig.rr_tp2}\n"
         f"Session           : {sig.session_name}\n"
         f"Radius            : {MAX_ZONE_DISTANCE_PIPS} pip\n"
         f"Timeout           : {sig.pending_timeout_minutes} min\n"
+        f"Signal interval   : {SIGNAL_INTERVAL_MINUTES} min\n"
         "====================================\n"
     )
