@@ -34,18 +34,7 @@ router = Router()
 # BASE DIRECTORY
 # =========================================================
 
-# handlers/materi.py
-#        ↓
-# parent = handlers
-#        ↓
-# parent.parent = root project
-
 BASE_DIR = Path(__file__).resolve().parent.parent
-
-
-# =========================================================
-# MATERIALS DIRECTORY
-# =========================================================
 
 MATERIALS_DIR = BASE_DIR / "materials"
 
@@ -55,9 +44,7 @@ MATERIALS_DIR = BASE_DIR / "materials"
 # =========================================================
 
 VIDEO_FILE = MATERIALS_DIR / "smc_basic.mp4"
-
 PDF_FILE = MATERIALS_DIR / "panduan_smc.pdf"
-
 IMAGE_FILE = MATERIALS_DIR / "smc_cheatsheet.jpg"
 
 
@@ -68,26 +55,23 @@ IMAGE_FILE = MATERIALS_DIR / "smc_cheatsheet.jpg"
 logger.info("==========================================")
 logger.info("📚 SMC MATERIALS")
 logger.info("==========================================")
+logger.info("📂 Base directory : %s", BASE_DIR)
+logger.info("📂 Materials      : %s", MATERIALS_DIR)
 
 logger.info(
-    "📂 Materials directory : %s",
-    MATERIALS_DIR,
-)
-
-logger.info(
-    "🎥 Video               : %s | exists=%s",
+    "🎥 Video : %s | exists=%s",
     VIDEO_FILE,
     VIDEO_FILE.exists(),
 )
 
 logger.info(
-    "📕 PDF                 : %s | exists=%s",
+    "📕 PDF   : %s | exists=%s",
     PDF_FILE,
     PDF_FILE.exists(),
 )
 
 logger.info(
-    "🖼 Image               : %s | exists=%s",
+    "🖼 Image : %s | exists=%s",
     IMAGE_FILE,
     IMAGE_FILE.exists(),
 )
@@ -127,6 +111,69 @@ def materi_keyboard() -> InlineKeyboardMarkup:
 
         ]
     )
+
+
+# =========================================================
+# VALIDATE VIDEO
+# =========================================================
+
+def validate_video_file(file_path: Path) -> tuple[bool, str]:
+    """
+    Mengecek apakah file benar-benar memiliki
+    signature MP4.
+
+    MP4 biasanya memiliki struktur:
+
+        [size][ftyp]
+
+    'ftyp' biasanya berada di byte 4-8.
+    """
+
+    try:
+
+        if not file_path.exists():
+            return False, "FILE_NOT_FOUND"
+
+        if not file_path.is_file():
+            return False, "NOT_A_FILE"
+
+        size = file_path.stat().st_size
+
+        if size <= 0:
+            return False, "EMPTY_FILE"
+
+        # File MP4 normal minimal memiliki header.
+        if size < 16:
+            return False, "FILE_TOO_SMALL"
+
+        with file_path.open("rb") as f:
+
+            header = f.read(32)
+
+        logger.info(
+            "🎥 Video header: %s",
+            header[:16],
+        )
+
+        # -------------------------------------------------
+        # MP4 biasanya memiliki 'ftyp'
+        # pada byte 4-8.
+        # -------------------------------------------------
+
+        if b"ftyp" not in header[:16]:
+
+            return False, "INVALID_MP4_HEADER"
+
+        return True, "OK"
+
+    except Exception as e:
+
+        logger.exception(
+            "❌ Error validating video: %s",
+            e,
+        )
+
+        return False, "VALIDATION_ERROR"
 
 
 # =========================================================
@@ -179,9 +226,14 @@ async def materi_video(
         "🎥 Menyiapkan video SMC Basic..."
     )
 
-    # -----------------------------------------------------
+    # =====================================================
     # CEK FILE
-    # -----------------------------------------------------
+    # =====================================================
+
+    logger.info(
+        "🎥 Memeriksa video: %s",
+        VIDEO_FILE,
+    )
 
     if not VIDEO_FILE.exists():
 
@@ -192,16 +244,16 @@ async def materi_video(
 
         await callback.message.answer(
             "❌ *Video SMC tidak ditemukan.*\n\n"
-            "Pastikan file berada di:\n"
+            "File yang dicari:\n"
             "`materials/smc_basic.mp4`",
             parse_mode="Markdown",
         )
 
         return
 
-    # -----------------------------------------------------
-    # CEK UKURAN FILE
-    # -----------------------------------------------------
+    # =====================================================
+    # CEK UKURAN
+    # =====================================================
 
     try:
 
@@ -216,15 +268,68 @@ async def materi_video(
             video_size_mb,
         )
 
+        if video_size <= 0:
+
+            logger.error(
+                "❌ VIDEO KOSONG!"
+            )
+
+            await callback.message.answer(
+                "❌ *File video kosong.*\n\n"
+                "Silakan upload ulang video.",
+                parse_mode="Markdown",
+            )
+
+            return
+
     except Exception:
 
         logger.exception(
             "❌ Gagal membaca ukuran video."
         )
 
-    # -----------------------------------------------------
+        await callback.message.answer(
+            "❌ Gagal membaca file video.",
+        )
+
+        return
+
+    # =====================================================
+    # VALIDASI HEADER MP4
+    # =====================================================
+
+    valid, reason = validate_video_file(
+        VIDEO_FILE
+    )
+
+    if not valid:
+
+        logger.error(
+            "❌ VIDEO TIDAK VALID | reason=%s | file=%s",
+            reason,
+            VIDEO_FILE,
+        )
+
+        await callback.message.answer(
+            "❌ *File video tidak valid.*\n\n"
+            f"Status: `{reason}`\n\n"
+            "Kemungkinan file MP4 rusak atau "
+            "file yang tersimpan di server bukan "
+            "video MP4 asli.",
+            parse_mode="Markdown",
+        )
+
+        return
+
+    logger.info(
+        "✅ VIDEO VALID | %.2f MB | %s",
+        video_size_mb,
+        VIDEO_FILE,
+    )
+
+    # =====================================================
     # KIRIM VIDEO
-    # -----------------------------------------------------
+    # =====================================================
 
     try:
 
@@ -240,6 +345,7 @@ async def materi_video(
 
         await callback.message.answer_video(
             video=video,
+
             caption=(
                 "🎥 *SMC BASIC*\n"
                 "━━━━━━━━━━━━━━━━━━\n\n"
@@ -256,9 +362,9 @@ async def materi_video(
 
                 "🤖 *XAU AI SMC REAL*"
             ),
+
             parse_mode="Markdown",
 
-            # Memungkinkan Telegram melakukan streaming
             supports_streaming=True,
         )
 
@@ -266,10 +372,6 @@ async def materi_video(
             "✅ VIDEO SMC BERHASIL DIKIRIM | user_id=%s",
             callback.from_user.id,
         )
-
-    # -----------------------------------------------------
-    # ERROR
-    # -----------------------------------------------------
 
     except Exception as e:
 
@@ -302,10 +404,6 @@ async def materi_pdf(
         "📕 Mengirim panduan SMC..."
     )
 
-    # -----------------------------------------------------
-    # CEK FILE
-    # -----------------------------------------------------
-
     if not PDF_FILE.exists():
 
         logger.error(
@@ -322,10 +420,6 @@ async def materi_pdf(
 
         return
 
-    # -----------------------------------------------------
-    # KIRIM PDF
-    # -----------------------------------------------------
-
     try:
 
         logger.info(
@@ -340,6 +434,7 @@ async def materi_pdf(
 
         await callback.message.answer_document(
             document=document,
+
             caption=(
                 "📕 *PANDUAN SMC*\n"
                 "━━━━━━━━━━━━━━━━━━\n\n"
@@ -352,6 +447,7 @@ async def materi_pdf(
 
                 "🤖 *XAU AI SMC REAL*"
             ),
+
             parse_mode="Markdown",
         )
 
@@ -389,10 +485,6 @@ async def materi_image(
         "🖼 Mengirim SMC Cheatsheet..."
     )
 
-    # -----------------------------------------------------
-    # CEK FILE
-    # -----------------------------------------------------
-
     if not IMAGE_FILE.exists():
 
         logger.error(
@@ -409,10 +501,6 @@ async def materi_image(
 
         return
 
-    # -----------------------------------------------------
-    # KIRIM IMAGE
-    # -----------------------------------------------------
-
     try:
 
         logger.info(
@@ -427,6 +515,7 @@ async def materi_image(
 
         await callback.message.answer_photo(
             photo=photo,
+
             caption=(
                 "🖼 *SMC CHEATSHEET*\n"
                 "━━━━━━━━━━━━━━━━━━\n\n"
@@ -439,6 +528,7 @@ async def materi_image(
 
                 "🤖 *XAU AI SMC REAL*"
             ),
+
             parse_mode="Markdown",
         )
 
