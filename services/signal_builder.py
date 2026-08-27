@@ -91,6 +91,19 @@ from .entry_reason_bank import (
     get_session_extra_note,
 )
 
+# =========================================================
+# FUNDAMENTAL + COMBINED AI
+# =========================================================
+
+from .fundamental_service import (
+    get_latest_fundamental_news,
+    build_combined_fundamental_context,
+)
+
+from .combined_service import (
+    combine_smc_and_fundamental,
+)
+
 
 # =========================================================
 # CONFIG
@@ -2542,8 +2555,8 @@ def generate_signal(
         )
     )
 
-    # =====================================================
-    # PROBABILITY BUY / SELL
+        # =====================================================
+    # PROBABILITY BUY / SELL — SMC ORIGINAL
     # =====================================================
 
     (
@@ -2561,8 +2574,214 @@ def generate_signal(
         ),
     )
 
+
+    # =====================================================
+    # SAVE ORIGINAL SMC PROBABILITY
+    #
+    # PENTING:
+    # Probability asli SMC tetap disimpan.
+    # Kita tidak mengubah engine SMC.
+    # =====================================================
+
+    smc_probability_buy = int(
+        probability_buy
+    )
+
+    smc_probability_sell = int(
+        probability_sell
+    )
+
+
+    # =====================================================
+    # FUNDAMENTAL NEWS
+    # =====================================================
+
+    fundamental_news = None
+
+    fundamental_context = (
+        build_combined_fundamental_context(
+            None
+        )
+    )
+
+
+    try:
+
+        fundamental_news = (
+            get_latest_fundamental_news()
+        )
+
+        fundamental_context = (
+            build_combined_fundamental_context(
+                fundamental_news
+            )
+        )
+
+
+        logger.info(
+            "Fundamental loaded | "
+            "available=%s | "
+            "impact=%s | "
+            "source=%s",
+            fundamental_context.get(
+                "available"
+            ),
+            fundamental_context.get(
+                "gold_impact"
+            ),
+            fundamental_context.get(
+                "source"
+            ),
+        )
+
+
+    except Exception as exc:
+
+        logger.exception(
+            "Fundamental gagal dimuat: %s",
+            exc,
+        )
+
+
+        # =================================================
+        # JIKA FUNDAMENTAL ERROR
+        #
+        # SIGNAL SMC TETAP BERJALAN NORMAL.
+        # =================================================
+
+        fundamental_news = None
+
+        fundamental_context = (
+            build_combined_fundamental_context(
+                None
+            )
+        )
+
+
+    # =====================================================
+    # COMBINED SMC + FUNDAMENTAL
+    # =====================================================
+
+    try:
+
+        combined_result = (
+            combine_smc_and_fundamental(
+
+                smc_bias=m5_smc.bias,
+
+                probability_buy=(
+                    smc_probability_buy
+                ),
+
+                probability_sell=(
+                    smc_probability_sell
+                ),
+
+                fundamental=(
+                    fundamental_context
+                ),
+
+            )
+        )
+
+
+    except Exception as exc:
+
+        logger.exception(
+            "Combined analysis gagal: %s",
+            exc,
+        )
+
+
+        # =================================================
+        # FALLBACK
+        #
+        # Jika Combined error,
+        # kembali 100% ke SMC lama.
+        # =================================================
+
+        combined_result = {
+
+            "bias": (
+                "BUY"
+                if smc_probability_buy
+                >= smc_probability_sell
+                else "SELL"
+            ),
+
+            "probability_buy": (
+                smc_probability_buy
+            ),
+
+            "probability_sell": (
+                smc_probability_sell
+            ),
+
+            "smc_probability_buy": (
+                smc_probability_buy
+            ),
+
+            "smc_probability_sell": (
+                smc_probability_sell
+            ),
+
+            "fundamental_impact": (
+                "NEUTRAL"
+            ),
+
+            "fundamental_available": False,
+
+            "fundamental_weight": 0,
+
+            "reasons": [],
+
+        }
+
+
+    # =====================================================
+    # GET COMBINED PROBABILITY
+    # =====================================================
+
+    probability_buy = int(
+        combined_result.get(
+            "probability_buy",
+            smc_probability_buy,
+        )
+    )
+
+    probability_sell = int(
+        combined_result.get(
+            "probability_sell",
+            smc_probability_sell,
+        )
+    )
+
+
+    # =====================================================
+    # SAFETY CLAMP
+    # =====================================================
+
+    probability_buy = max(
+        0,
+        min(
+            100,
+            probability_buy,
+        ),
+    )
+
+    probability_sell = max(
+        0,
+        min(
+            100,
+            probability_sell,
+        ),
+    )
+
+
     # =====================================================
     # FINAL DIRECTION
+    #
+    # Tetap menggunakan fungsi lama.
     # =====================================================
 
     final_bias = _choose_direction(
@@ -2570,12 +2789,79 @@ def generate_signal(
         probability_sell,
     )
 
+
     # =====================================================
     # FORCE FINAL BIAS INTO SMC
+    #
+    # Ini tetap mengikuti struktur lama.
     # =====================================================
 
     m5_smc.bias = final_bias
 
+
+    # =====================================================
+    # COMBINED REASONS
+    # =====================================================
+
+    combined_reasons = (
+        combined_result.get(
+            "reasons",
+            []
+        )
+    )
+
+
+    if not isinstance(
+        combined_reasons,
+        list,
+    ):
+
+        combined_reasons = []
+
+
+    # =====================================================
+    # BEST ZONE
+    # =====================================================
+
+    (
+        selected_zone,
+        selected_smc,
+    ) = _find_best_entry_zone(
+        m5_smc=m5_smc,
+        m1_smc=m1_smc,
+        current_price=current_price,
+        m5_candles=recent_m5,
+        m1_candles=recent_m1,
+    )
+
+
+    # =====================================================
+    # ZONE
+    # =====================================================
+
+    zone_price = float(
+        selected_zone["price"]
+    )
+
+    zone_type = selected_zone[
+        "type"
+    ]
+
+    fill_status = selected_zone[
+        "status"
+    ]
+
+    zone_low = float(
+        selected_zone["low"]
+    )
+
+    zone_high = float(
+        selected_zone["high"]
+    )
+
+    zone_timeframe = selected_zone[
+        "timeframe"
+    ]
     # =====================================================
     # BEST ZONE
     # =====================================================
