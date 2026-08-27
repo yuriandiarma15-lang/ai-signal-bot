@@ -2,6 +2,7 @@ import asyncio
 import logging
 
 from aiogram import Bot, Dispatcher
+from aiogram.types import BotCommand
 
 from config.settings import BOT_TOKEN
 
@@ -70,13 +71,39 @@ dp.include_router(
     admin_router
 )
 
-# =========================================================
-# MATERI ROUTER
-# =========================================================
-
 dp.include_router(
     materi_router
 )
+
+
+# =========================================================
+# TELEGRAM COMMAND MENU
+# =========================================================
+
+async def setup_bot_commands():
+
+    await bot.set_my_commands(
+        [
+            BotCommand(
+                command="start",
+                description="Mulai menggunakan bot",
+            ),
+
+            BotCommand(
+                command="menu",
+                description="Buka menu utama",
+            ),
+
+            BotCommand(
+                command="materi",
+                description="Materi belajar SMC",
+            ),
+        ]
+    )
+
+    logger.info(
+        "📋 Telegram command menu berhasil diperbarui"
+    )
 
 
 # =========================================================
@@ -96,6 +123,21 @@ async def main():
     logger.info(
         "=========================================="
     )
+
+    # =====================================================
+    # SET TELEGRAM COMMAND
+    # =====================================================
+
+    try:
+
+        await setup_bot_commands()
+
+    except Exception:
+
+        logger.exception(
+            "Gagal mengatur Telegram command menu."
+        )
+
 
     # =====================================================
     # SIGNAL SCHEDULER
@@ -119,6 +161,7 @@ async def main():
     logger.info(
         "⏰ SIGNAL SCHEDULER STARTED"
     )
+
 
     # =====================================================
     # MONITOR STATUS
@@ -156,6 +199,7 @@ async def main():
         "⛔ 04:00 CHANNEL  : DISABLED"
     )
 
+
     # =====================================================
     # ENGINE STATUS
     # =====================================================
@@ -177,22 +221,24 @@ async def main():
     )
 
     logger.info(
-        "📚 MATERI SMC AVAILABLE"
+        "📚 SMC MATERIAL AVAILABLE"
     )
 
     logger.info(
         "=========================================="
     )
 
-    try:
 
-        # =================================================
-        # TELEGRAM POLLING
-        # =================================================
+    # =====================================================
+    # TELEGRAM POLLING
+    # =====================================================
+
+    try:
 
         await dp.start_polling(
             bot
         )
+
 
     except asyncio.CancelledError:
 
@@ -202,11 +248,13 @@ async def main():
 
         raise
 
+
     except Exception:
 
         logger.exception(
             "Telegram polling error."
         )
+
 
     finally:
 
@@ -233,6 +281,7 @@ async def main():
             logger.exception(
                 "Error saat menghentikan signal scheduler."
             )
+
 
         # =================================================
         # CLOSE BOT
