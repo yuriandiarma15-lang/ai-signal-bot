@@ -2081,44 +2081,74 @@ def _calculate_risk(
     entry_price: float,
 ):
 
+    # =====================================================
+    # XAUUSD
+    #
+    # 1 pip = 0.01
+    #
+    # SL  = 50 pip  = 0.50
+    # TP1 = 70 pip  = 0.70
+    # TP2 = 150 pip = 1.50
+    # =====================================================
+
+    SL_PRICE_DISTANCE = 0.50
+    TP1_PRICE_DISTANCE = 0.70
+    TP2_PRICE_DISTANCE = 1.50
+
+    # =====================================================
+    # BUY
+    # =====================================================
+
     if bias == "bullish":
 
         sl = (
             entry_price
-            - SL_DISTANCE
+            - SL_PRICE_DISTANCE
         )
 
         tp1 = (
             entry_price
-            + TP1_DISTANCE
+            + TP1_PRICE_DISTANCE
         )
 
         tp2 = (
             entry_price
-            + TP2_DISTANCE
+            + TP2_PRICE_DISTANCE
         )
+
+    # =====================================================
+    # SELL
+    # =====================================================
 
     else:
 
         sl = (
             entry_price
-            + SL_DISTANCE
+            + SL_PRICE_DISTANCE
         )
 
         tp1 = (
             entry_price
-            - TP1_DISTANCE
+            - TP1_PRICE_DISTANCE
         )
 
         tp2 = (
             entry_price
-            - TP2_DISTANCE
+            - TP2_PRICE_DISTANCE
         )
+
+    # =====================================================
+    # RISK
+    # =====================================================
 
     risk = abs(
         entry_price
         - sl
     )
+
+    # =====================================================
+    # REWARD
+    # =====================================================
 
     reward_tp1 = abs(
         tp1
@@ -2129,6 +2159,10 @@ def _calculate_risk(
         tp2
         - entry_price
     )
+
+    # =====================================================
+    # RR
+    # =====================================================
 
     rr_tp1 = (
         reward_tp1 / risk
@@ -2143,17 +2177,16 @@ def _calculate_risk(
     )
 
     return (
-        sl,
-        tp1,
-        tp2,
-        rr_tp1,
-        rr_tp2,
+        round(sl, 2),
+        round(tp1, 2),
+        round(tp2, 2),
+        round(rr_tp1, 2),
+        round(rr_tp2, 2),
     )
 
-
-# =========================================================
-# ENTRY DESCRIPTION
-# =========================================================
+# =====================================================
+# ENTRY DESCRIPTION — REALTIME
+# =====================================================
 
 def _build_entry_description(
     order_type: str,
@@ -2163,31 +2196,26 @@ def _build_entry_description(
     zone_type: str,
 ) -> str:
 
-    if order_type == "Buy Limit":
-
-        return (
-            "BUY LIMIT — tunggu harga turun "
-            "ke area entry lalu BUY"
-        )
-
-    if order_type == "Sell Limit":
-
-        return (
-            "SELL LIMIT — tunggu harga naik "
-            "ke area entry lalu SELL"
-        )
+    # =================================================
+    # SEMUA ENTRY REALTIME
+    # =================================================
 
     if order_type == "Market":
 
         return (
-            f"MARKET — entry sekitar "
+            f"MARKET ENTRY — "
+            f"entry realtime "
             f"{_price_display(entry_price)}"
         )
 
-    return (
-        f"Entry berdasarkan {zone_type}"
-    )
+    # =================================================
+    # FALLBACK
+    # =================================================
 
+    return (
+        f"MARKET ENTRY — "
+        f"{_price_display(entry_price)}"
+    )
 
 # =========================================================
 # EDUCATIONAL REASON
@@ -2645,113 +2673,95 @@ def generate_signal(
 
             zone_timeframe = "M5"
 
-    # =====================================================
-    # ENTRY PRICE
-    # =====================================================
+# =====================================================
+# ENTRY PRICE — REALTIME
+# =====================================================
 
-    if final_bias == "bullish":
+# Entry selalu menggunakan harga market saat ini.
+# OB / FVG tidak lagi digunakan sebagai harga entry.
 
-        if zone_price < current_price:
+entry_price = current_price
 
-            entry_price = zone_price
 
-        else:
+# =====================================================
+# ENTRY ORDER — REALTIME
+# =====================================================
 
-            entry_price = current_price
+# Tidak ada lagi Buy Limit / Sell Limit.
+# Semua signal menggunakan market entry.
 
-    else:
+order_type = "Market"
 
-        if zone_price > current_price:
+is_pending = False
 
-            entry_price = zone_price
 
-        else:
+# =====================================================
+# RISK
+# =====================================================
 
-            entry_price = current_price
+(
+    sl,
+    tp1,
+    tp2,
+    rr_tp1,
+    rr_tp2,
+) = _calculate_risk(
+    bias=final_bias,
+    entry_price=entry_price,
+)
 
-    # =====================================================
-    # ENTRY ORDER
-    # =====================================================
 
-    (
-        order_type,
-        is_pending,
-    ) = _determine_order_type(
-        bias=final_bias,
-        entry_price=entry_price,
-        current_price=current_price,
-        has_zone=True,
-        fill_status=fill_status,
-        m1_confirmation=(
-            m1_confirmation_buy
-            if final_bias == "bullish"
-            else m1_confirmation_sell
-        ),
-    )
+# =====================================================
+# STRUCTURE
+# =====================================================
 
-    # =====================================================
-    # RISK
-    # =====================================================
-
-    (
-        sl,
-        tp1,
-        tp2,
-        rr_tp1,
-        rr_tp2,
-    ) = _calculate_risk(
-        bias=final_bias,
-        entry_price=entry_price,
-    )
-
-    # =====================================================
-    # STRUCTURE
-    # =====================================================
-
-    structure_event = (
-        _get_structure_event(
-            m5_smc,
-            structure_candles,
-        )
-    )
-
-    (
-        structure_low,
-        structure_high,
-    ) = _get_structure_range(
+structure_event = (
+    _get_structure_event(
+        m5_smc,
         structure_candles,
-        structure_event,
     )
+)
 
-    # =====================================================
-    # SWING
-    # =====================================================
+(
+    structure_low,
+    structure_high,
+) = _get_structure_range(
+    structure_candles,
+    structure_event,
+)
 
-    (
-        swing_type,
-        swing_low,
-        swing_high,
-    ) = _classify_swings(
-        structure_candles
-    )
 
-    # =====================================================
-    # LIQUIDITY
-    # =====================================================
+# =====================================================
+# SWING
+# =====================================================
 
-    (
-        liquidity_type,
-        liquidity_price,
-        liquidity_low,
-        liquidity_high,
-    ) = _get_liquidity(
-        structure_candles,
-        final_bias,
-    )
+(
+    swing_type,
+    swing_low,
+    swing_high,
+) = _classify_swings(
+    structure_candles
+)
 
-    # =====================================================
-    # OB
-    # =====================================================
+
+# =====================================================
+# LIQUIDITY
+# =====================================================
+
+(
+    liquidity_type,
+    liquidity_price,
+    liquidity_low,
+    liquidity_high,
+) = _get_liquidity(
+    structure_candles,
+    final_bias,
+)
+
+
+# =====================================================
+# OB
+# =====================================================
 
     (
         ob_low,
@@ -2805,15 +2815,15 @@ def generate_signal(
     # ENTRY DESCRIPTION
     # =====================================================
 
-    entry_type = (
-        _build_entry_description(
-            order_type=order_type,
-            is_pending=is_pending,
-            current_price=current_price,
-            entry_price=entry_price,
-            zone_type=zone_type,
-        )
+entry_type = (
+    _build_entry_description(
+        order_type=order_type,
+        is_pending=is_pending,
+        current_price=current_price,
+        entry_price=entry_price,
+        zone_type=zone_type,
     )
+)
 
     # =====================================================
     # ENTRY REASON BANK
@@ -3360,12 +3370,17 @@ def _wrap_reason(
 
 
 # =========================================================
-# FORMAT SIGNAL — SHORT (BARU)
+# FORMAT SIGNAL — SHORT
 #
-# Dipakai untuk pengiriman utama ke member.
-# Berisi HANYA signal inti (arah, entry, SL/TP, RR).
-# Detail analisa dipisah ke format_signal_detail()
-# dan ditampilkan lewat tombol "Detail Analisa".
+# Format utama untuk member.
+#
+# KONSEP:
+# - ENTRY = harga realtime
+# - Tidak ada Buy Limit / Sell Limit
+# - Tidak ada "tunggu turun/naik"
+# - Tidak menampilkan Market sekarang
+# - OB/FVG ditampilkan sebagai LOW RISK ZONE
+# - SL / TP tetap berdasarkan entry realtime
 # =========================================================
 
 def format_signal_short(
@@ -3386,6 +3401,7 @@ def format_signal_short(
         emoji = "🔴"
         direction_text = "SELL"
 
+
     # =====================================================
     # TIME
     # =====================================================
@@ -3396,36 +3412,38 @@ def format_signal_short(
         )
     )
 
+
     # =====================================================
-    # ENTRY INSTRUCTION
+    # ENTRY REALTIME
+    #
+    # PENTING:
+    # Entry sekarang menggunakan current_price,
+    # bukan lagi entry dari pending order / zona.
     # =====================================================
 
-    if sig.order_type == "Buy Limit":
+    realtime_entry = sig.current_price
 
-        instruction = (
-            f"⏳ Market sekarang "
-            f"`{_price_display(sig.current_price)}`\n"
-            f"⬇️ Tunggu turun ke "
-            f"`{_price_display(sig.entry_price)}`\n"
-            f"🎯 Lalu lakukan BUY"
-        )
 
-    elif sig.order_type == "Sell Limit":
+    # =====================================================
+    # LOW RISK ZONE
+    # =====================================================
 
-        instruction = (
-            f"⏳ Market sekarang "
-            f"`{_price_display(sig.current_price)}`\n"
-            f"⬆️ Tunggu naik ke "
-            f"`{_price_display(sig.entry_price)}`\n"
-            f"🎯 Lalu lakukan SELL"
-        )
+    zone_text = _range_display(
+        sig.zone_low,
+        sig.zone_high
+    )
 
-    else:
 
-        instruction = (
-            f"⚡ Market entry sekitar "
-            f"`{_price_display(sig.entry_price)}`"
-        )
+    # =====================================================
+    # ZONE TYPE
+    # =====================================================
+
+    zone_type = (
+        sig.zone_type
+        if sig.zone_type
+        else "SMC Zone"
+    )
+
 
     # =====================================================
     # LINES
@@ -3449,23 +3467,20 @@ def format_signal_short(
 
         "",
 
+        # =============================================
+        # REALTIME ENTRY
+        # =============================================
+
         (
             f"🎯 ENTRY: "
-            f"`{_price_display(sig.entry_price)}`"
-        ),
-
-        (
-            f"📌 ORDER: "
-            f"*{sig.order_type}*"
+            f"`{_price_display(realtime_entry)}`"
         ),
 
         "",
 
-        instruction,
-
-        "━━━━━━━━━━━━━━━━━━",
-
-        "",
+        # =============================================
+        # SL / TP
+        # =============================================
 
         (
             f"🛑 SL  : "
@@ -3480,7 +3495,7 @@ def format_signal_short(
         ),
 
         (
-            f"✅ TP2 : "
+            f"🏆 TP2 : "
             f"`{_price_display(sig.tp2)}` "
             f"(+{TP2_PIPS} pip)"
         ),
@@ -3491,11 +3506,39 @@ def format_signal_short(
             f"TP2 1:{sig.rr_tp2:.2f}"
         ),
 
+        "━━━━━━━━━━━━━━━━━━",
+
+        # =============================================
+        # LOW RISK ZONE
+        # =============================================
+
         "",
+
+        "🛡 *LOW RISK ZONE*",
+
+        (
+            f"📍 `{zone_text}`"
+        ),
+
+        (
+            f"🧩 *{zone_type}*"
+        ),
+
+        "━━━━━━━━━━━━━━━━━━",
+
+        "",
+
+        # =============================================
+        # DETAIL CTA
+        # =============================================
 
         "👇 Klik tombol di bawah untuk mengetahui Detail Analisanya",
 
         "",
+
+        # =============================================
+        # DISCLAIMER
+        # =============================================
 
         (
             "⚠️ _Probability adalah confidence "
@@ -3514,10 +3557,10 @@ def format_signal_short(
         ),
     ]
 
+
     return "\n".join(
         lines
     )
-
 
 # =========================================================
 # FORMAT SIGNAL — DETAIL (BARU)
