@@ -1013,3 +1013,388 @@ PERFORMANCE_CHANNEL_ID = _int_env(
     "PERFORMANCE_CHANNEL_ID",
     0
 )
+
+# =========================================================
+# FUNDAMENTAL NEWS
+# =========================================================
+#
+# Fundamental hanya untuk:
+#
+# 6 Bulan
+# 12 Bulan
+# Lifetime
+#
+# Tidak untuk:
+#
+# 1 Bulan
+# MITRA HFM
+#
+# Interval:
+# 60 menit
+# =========================================================
+
+FUNDAMENTAL_ENABLED = (
+    _env(
+        "FUNDAMENTAL_ENABLED",
+        "true"
+    ).lower()
+    in (
+        "1",
+        "true",
+        "yes",
+        "on",
+    )
+)
+
+
+FUNDAMENTAL_INTERVAL_MINUTES = _int_env(
+    "FUNDAMENTAL_INTERVAL_MINUTES",
+    60
+)
+
+
+# =========================================================
+# FUNDAMENTAL NEWS LIMIT
+# =========================================================
+#
+# Setiap update hanya boleh mengirim:
+#
+# 1 berita.
+#
+# =========================================================
+
+FUNDAMENTAL_NEWS_PER_UPDATE = _int_env(
+    "FUNDAMENTAL_NEWS_PER_UPDATE",
+    1
+)
+
+
+# =========================================================
+# FUNDAMENTAL NEWS AGE
+# =========================================================
+#
+# Maksimum umur berita yang boleh digunakan.
+#
+# Prioritas:
+# berita terbaru.
+# =========================================================
+
+FUNDAMENTAL_MAX_NEWS_AGE_HOURS = _int_env(
+    "FUNDAMENTAL_MAX_NEWS_AGE_HOURS",
+    24
+)
+
+
+# =========================================================
+# FUNDAMENTAL BLOCKED NEWS
+# =========================================================
+#
+# Berita berikut TIDAK digunakan:
+#
+# FOMC
+# NFP
+# PPI
+# CPI
+#
+# Filter akan dilakukan berdasarkan judul + isi berita.
+# =========================================================
+
+FUNDAMENTAL_BLOCKED_KEYWORDS = [
+
+    "FOMC",
+
+    "Federal Open Market Committee",
+
+    "NFP",
+
+    "Non-Farm Payroll",
+
+    "Nonfarm Payroll",
+
+    "Payrolls",
+
+    "PPI",
+
+    "Producer Price Index",
+
+    "CPI",
+
+    "Consumer Price Index",
+
+]
+
+
+# =========================================================
+# FUNDAMENTAL SEARCH KEYWORDS
+# =========================================================
+#
+# Fokus berita yang mempunyai pengaruh terhadap emas.
+#
+# =========================================================
+
+FUNDAMENTAL_SEARCH_KEYWORDS = [
+
+    "gold",
+
+    "XAUUSD",
+
+    "XAU/USD",
+
+    "Federal Reserve",
+
+    "Fed",
+
+    "interest rate",
+
+    "US dollar",
+
+    "USD",
+
+    "Treasury yields",
+
+    "US yields",
+
+    "inflation",
+
+    "central bank",
+
+    "monetary policy",
+
+    "geopolitical",
+
+    "gold price",
+
+]
+
+
+# =========================================================
+# FUNDAMENTAL SOURCE PRIORITY
+# =========================================================
+#
+# Prioritas sumber berita.
+#
+# Sistem akan berusaha mengambil sumber terpercaya
+# terlebih dahulu.
+#
+# =========================================================
+
+FUNDAMENTAL_SOURCE_PRIORITY = [
+
+    "Reuters",
+
+    "Bloomberg",
+
+    "CNBC",
+
+    "Wall Street Journal",
+
+    "Financial Times",
+
+    "Investing.com",
+
+    "FXStreet",
+
+]
+
+
+# =========================================================
+# FUNDAMENTAL TRANSLATION
+# =========================================================
+#
+# Semua berita yang dikirim ke Telegram harus menggunakan
+# Bahasa Indonesia.
+#
+# =========================================================
+
+FUNDAMENTAL_LANGUAGE = _env(
+    "FUNDAMENTAL_LANGUAGE",
+    "id"
+)
+
+
+# =========================================================
+# COMBINED AI
+# =========================================================
+#
+# Combined AI hanya untuk:
+#
+# 6 Bulan
+# 12 Bulan
+# Lifetime
+#
+# Interval:
+#
+# 90 menit.
+#
+# =========================================================
+
+COMBINED_AI_ENABLED = (
+    _env(
+        "COMBINED_AI_ENABLED",
+        "true"
+    ).lower()
+    in (
+        "1",
+        "true",
+        "yes",
+        "on",
+    )
+)
+
+
+COMBINED_AI_INTERVAL_MINUTES = _int_env(
+    "COMBINED_AI_INTERVAL_MINUTES",
+    90
+)
+
+
+# =========================================================
+# COMBINED NEWS LIMIT
+# =========================================================
+#
+# Setiap proses Combined AI hanya menggunakan:
+#
+# 1 berita.
+#
+# =========================================================
+
+COMBINED_NEWS_PER_UPDATE = _int_env(
+    "COMBINED_NEWS_PER_UPDATE",
+    1
+)
+
+
+# =========================================================
+# COMBINED NEWS AGE
+# =========================================================
+
+COMBINED_MAX_NEWS_AGE_HOURS = _int_env(
+    "COMBINED_MAX_NEWS_AGE_HOURS",
+    24
+)
+
+
+# =========================================================
+# COMBINED REQUIRE SMC
+# =========================================================
+#
+# Combined AI WAJIB mempunyai data teknikal/SMC.
+#
+# Jika SMC tidak valid:
+#
+# NO TRADE
+#
+# Jangan memaksakan Entry / TP / SL.
+# =========================================================
+
+COMBINED_REQUIRE_SMC = (
+    _env(
+        "COMBINED_REQUIRE_SMC",
+        "true"
+    ).lower()
+    in (
+        "1",
+        "true",
+        "yes",
+        "on",
+    )
+)
+
+
+# =========================================================
+# COMBINED REQUIRE FUNDAMENTAL
+# =========================================================
+#
+# Combined AI WAJIB mempunyai berita fundamental
+# yang valid.
+#
+# =========================================================
+
+COMBINED_REQUIRE_FUNDAMENTAL = (
+    _env(
+        "COMBINED_REQUIRE_FUNDAMENTAL",
+        "true"
+    ).lower()
+    in (
+        "1",
+        "true",
+        "yes",
+        "on",
+    )
+)
+
+
+# =========================================================
+# COMBINED RISK MANAGEMENT
+# =========================================================
+#
+# Combined menggunakan risk management SMC yang sudah ada.
+#
+# SL  = 50 pips
+# TP1 = 70 pips
+# TP2 = 150 pips
+#
+# Tidak membuat risk management baru.
+# =========================================================
+
+COMBINED_SL_PIPS = (
+    SMC_SL_PIPS
+)
+
+
+COMBINED_TP1_PIPS = (
+    SMC_TP1_PIPS
+)
+
+
+COMBINED_TP2_PIPS = (
+    SMC_TP2_PIPS
+)
+
+
+COMBINED_SL_DISTANCE = (
+    SMC_SL_DISTANCE
+)
+
+
+COMBINED_TP1_DISTANCE = (
+    SMC_TP1_DISTANCE
+)
+
+
+COMBINED_TP2_DISTANCE = (
+    SMC_TP2_DISTANCE
+)
+
+
+# =========================================================
+# NEWS CACHE
+# =========================================================
+#
+# Mencegah berita yang sama dikirim berulang kali.
+#
+# =========================================================
+
+FUNDAMENTAL_NEWS_CACHE_FILE = _env(
+    "FUNDAMENTAL_NEWS_CACHE_FILE",
+    "data/fundamental_news.json"
+)
+
+
+COMBINED_NEWS_CACHE_FILE = _env(
+    "COMBINED_NEWS_CACHE_FILE",
+    "data/combined_news.json"
+)
+
+
+# =========================================================
+# NEWS REQUEST
+# =========================================================
+#
+# Timeout request ke news provider.
+# =========================================================
+
+NEWS_REQUEST_TIMEOUT = _int_env(
+    "NEWS_REQUEST_TIMEOUT",
+    15
+)
