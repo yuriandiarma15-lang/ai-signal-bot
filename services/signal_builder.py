@@ -2673,42 +2673,42 @@ def generate_signal(
 
             zone_timeframe = "M5"
 
-# =====================================================
-# ENTRY PRICE — REALTIME
-# =====================================================
+    # =====================================================
+    # ENTRY PRICE — REALTIME
+    # =====================================================
 
-# Entry selalu menggunakan harga market saat ini.
-# OB / FVG tidak lagi digunakan sebagai harga entry.
+    # Entry selalu menggunakan harga market saat ini.
+    # OB / FVG tidak lagi digunakan sebagai harga entry.
 
-entry_price = current_price
-
-
-# =====================================================
-# ENTRY ORDER — REALTIME
-# =====================================================
-
-# Tidak ada lagi Buy Limit / Sell Limit.
-# Semua signal menggunakan market entry.
-
-order_type = "Market"
-
-is_pending = False
+    entry_price = current_price
 
 
-# =====================================================
-# RISK
-# =====================================================
+    # =====================================================
+    # ENTRY ORDER — REALTIME
+    # =====================================================
 
-(
-    sl,
-    tp1,
-    tp2,
-    rr_tp1,
-    rr_tp2,
-) = _calculate_risk(
-    bias=final_bias,
-    entry_price=entry_price,
-)
+    # Tidak ada lagi Buy Limit / Sell Limit.
+    # Semua signal menggunakan market entry.
+
+    order_type = "Market"
+
+    is_pending = False
+
+
+    # =====================================================
+    # RISK
+    # =====================================================
+
+    (
+        sl,
+        tp1,
+        tp2,
+        rr_tp1,
+        rr_tp2,
+    ) = _calculate_risk(
+        bias=final_bias,
+        entry_price=entry_price,
+    )
 
 
 # =====================================================
