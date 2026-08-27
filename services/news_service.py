@@ -7,35 +7,34 @@ XAU AI SIGNAL BOT
 NEWS SERVICE
 
 Fungsi:
-- Mengambil berita terbaru
-- Memfilter berita yang relevan dengan XAUUSD / Gold
-- Memprioritaskan sumber terpercaya
-- Menolak berita FOMC / NFP / PPI / CPI
-- Mengecek umur berita
-- Mengecek URL artikel asli
-- Mencegah berita duplikat
-- Menyediakan 1 berita terbaik
-- Menyediakan data untuk Fundamental AI
-- Menyediakan data untuk Combined AI
+- Mengambil berita terbaru XAUUSD / Gold
+- Menggunakan NewsAPI
+- Filter berita relevan dengan Gold
+- Filter berita yang terlalu lama
+- Filter blocked keywords
+- Prioritas source terpercaya
+- Mencegah duplicate
+- Mengembalikan 1 berita terbaik
+- Tidak mengubah sistem SMC lama
+
+Digunakan oleh:
+- Fundamental AI
+- Combined AI
 
 CATATAN:
-- Tidak mengubah SMC.
-- Tidak menghitung Entry.
-- Tidak menghitung SL.
-- Tidak menghitung TP.
-- Tidak menentukan BUY / SELL.
-- SMC tetap ditangani oleh signal_builder.py.
+API KEY disimpan di .env
+
+NEWS_API_KEY=xxxx
+NEWS_API_URL=https://newsapi.org/v2/everything
 """
 
-import hashlib
 import json
 import logging
 import os
-import re
 
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timedelta, timezone
+from pathlib import Path
 from typing import Any, Dict, List, Optional
-from urllib.parse import urlparse
 
 import requests
 
@@ -43,25 +42,15 @@ from config.settings import (
     NEWS_API_KEY,
     NEWS_API_URL,
 
-    NEWS_SOURCE_LANGUAGE,
-    NEWS_OUTPUT_LANGUAGE,
-
-    NEWS_FETCH_LIMIT,
-    NEWS_MAX_AGE_MINUTES,
-
-    NEWS_KEYWORDS,
-
-    NEWS_REQUIRE_SOURCE,
-    NEWS_REQUIRE_URL,
-
-    NEWS_PREVENT_DUPLICATE,
-
+    FUNDAMENTAL_NEWS_PER_UPDATE,
     FUNDAMENTAL_MAX_NEWS_AGE_HOURS,
     FUNDAMENTAL_BLOCKED_KEYWORDS,
     FUNDAMENTAL_SEARCH_KEYWORDS,
     FUNDAMENTAL_SOURCE_PRIORITY,
-
     FUNDAMENTAL_NEWS_CACHE_FILE,
+
+    COMBINED_NEWS_PER_UPDATE,
+    COMBINED_MAX_NEWS_AGE_HOURS,
     COMBINED_NEWS_CACHE_FILE,
 
     NEWS_REQUEST_TIMEOUT,
@@ -75,523 +64,112 @@ logger = logging.getLogger(__name__)
 # CONSTANT
 # =========================================================
 
-DEFAULT_NEWS_LIMIT = 10
-
-MAX_CACHE_ITEMS = 500
-
-USER_AGENT = (
-    "Mozilla/5.0 "
-    "(Windows NT 10.0; Win64; x64) "
-    "AppleWebKit/537.36 "
-    "(KHTML, like Gecko) "
-    "Chrome/151.0 Safari/537.36"
+DEFAULT_NEWS_API_URL = (
+    "https://newsapi.org/v2/everything"
 )
-
-
-# =========================================================
-# SESSION
-# =========================================================
-
-_http_session = requests.Session()
-
-_http_session.headers.update(
-    {
-        "User-Agent": USER_AGENT,
-        "Accept": "application/json,text/plain,*/*",
-    }
-)
-
-
-# =========================================================
-# TIMEZONE
-# =========================================================
-
-WIB = timezone(
-    timedelta(
-        hours=7
-    )
-)
-
-
-# =========================================================
-# TEXT NORMALIZATION
-# =========================================================
-
-def normalize_text(
-    value: Any,
-) -> str:
-
-    if value is None:
-        return ""
-
-    text = str(
-        value
-    )
-
-    text = re.sub(
-        r"\s+",
-        " ",
-        text,
-    )
-
-    return text.strip()
-
-
-# =========================================================
-# URL VALIDATION
-# =========================================================
-
-def is_valid_url(
-    url: Any,
-) -> bool:
-
-    url = normalize_text(
-        url
-    )
-
-    if not url:
-        return False
-
-    try:
-
-        parsed = urlparse(
-            url
-        )
-
-        return (
-            parsed.scheme
-            in (
-                "http",
-                "https",
-            )
-            and bool(
-                parsed.netloc
-            )
-        )
-
-    except Exception:
-
-        return False
-
-
-# =========================================================
-# DATE PARSER
-# =========================================================
-
-def parse_datetime(
-    value: Any,
-) -> Optional[datetime]:
-
-    if value is None:
-        return None
-
-    if isinstance(
-        value,
-        datetime,
-    ):
-
-        dt = value
-
-    else:
-
-        text = normalize_text(
-            value
-        )
-
-        if not text:
-            return None
-
-        # ---------------------------------------------
-        # ISO FORMAT
-        # ---------------------------------------------
-
-        try:
-
-            normalized = (
-                text
-                .replace(
-                    "Z",
-                    "+00:00",
-                )
-            )
-
-            dt = datetime.fromisoformat(
-                normalized
-            )
-
-        except Exception:
-
-            dt = None
-
-        # ---------------------------------------------
-        # COMMON FORMATS
-        # ---------------------------------------------
-
-        if dt is None:
-
-            formats = [
-
-                "%Y-%m-%dT%H:%M:%S.%fZ",
-
-                "%Y-%m-%dT%H:%M:%SZ",
-
-                "%Y-%m-%dT%H:%M:%S",
-
-                "%Y-%m-%d %H:%M:%S",
-
-                "%Y-%m-%d %H:%M",
-
-                "%Y/%m/%d %H:%M:%S",
-
-                "%Y/%m/%d %H:%M",
-
-            ]
-
-            for fmt in formats:
-
-                try:
-
-                    dt = datetime.strptime(
-                        text,
-                        fmt,
-                    )
-
-                    break
-
-                except ValueError:
-
-                    continue
-
-    if dt is None:
-        return None
-
-    # ---------------------------------------------
-    # FORCE UTC WHEN TIMEZONE IS MISSING
-    # ---------------------------------------------
-
-    if dt.tzinfo is None:
-
-        dt = dt.replace(
-            tzinfo=timezone.utc
-        )
-
-    return dt
-
-
-# =========================================================
-# FORMAT DATETIME
-# =========================================================
-
-def format_datetime_wib(
-    value: Any,
-) -> str:
-
-    dt = parse_datetime(
-        value
-    )
-
-    if dt is None:
-        return ""
-
-    try:
-
-        return dt.astimezone(
-            WIB
-        ).strftime(
-            "%d-%m-%Y %H:%M WIB"
-        )
-
-    except Exception:
-
-        return ""
-
-
-# =========================================================
-# NEWS AGE
-# =========================================================
-
-def news_age_minutes(
-    published_at: Any,
-) -> Optional[float]:
-
-    dt = parse_datetime(
-        published_at
-    )
-
-    if dt is None:
-        return None
-
-    now = datetime.now(
-        timezone.utc
-    )
-
-    difference = (
-        now - dt.astimezone(
-            timezone.utc
-        )
-    )
-
-    return difference.total_seconds() / 60
-
-
-# =========================================================
-# KEYWORD MATCH
-# =========================================================
-
-def keyword_match(
-    text: str,
-    keywords: List[str],
-) -> List[str]:
-
-    text_lower = normalize_text(
-        text
-    ).lower()
-
-    matches = []
-
-    for keyword in keywords:
-
-        keyword = normalize_text(
-            keyword
-        )
-
-        if not keyword:
-            continue
-
-        if keyword.lower() in text_lower:
-
-            matches.append(
-                keyword
-            )
-
-    return matches
-
-
-# =========================================================
-# BLOCKED NEWS
-# =========================================================
-
-def is_blocked_news(
-    title: str,
-    description: str = "",
-    content: str = "",
-) -> bool:
-
-    combined_text = " ".join(
-        [
-            normalize_text(title),
-            normalize_text(description),
-            normalize_text(content),
-        ]
-    )
-
-    matches = keyword_match(
-        combined_text,
-        FUNDAMENTAL_BLOCKED_KEYWORDS,
-    )
-
-    if matches:
-
-        logger.info(
-            "Berita diblokir | keywords=%s | title=%s",
-            matches,
-            title,
-        )
-
-        return True
-
-    return False
-
-
-# =========================================================
-# RELEVANT NEWS
-# =========================================================
-
-def is_relevant_news(
-    title: str,
-    description: str = "",
-    content: str = "",
-) -> bool:
-
-    combined_text = " ".join(
-        [
-            normalize_text(title),
-            normalize_text(description),
-            normalize_text(content),
-        ]
-    )
-
-    # ---------------------------------------------
-    # KEYWORD DARI SETTINGS
-    # ---------------------------------------------
-
-    matches_1 = keyword_match(
-        combined_text,
-        NEWS_KEYWORDS,
-    )
-
-    # ---------------------------------------------
-    # KEYWORD FUNDAMENTAL
-    # ---------------------------------------------
-
-    matches_2 = keyword_match(
-        combined_text,
-        FUNDAMENTAL_SEARCH_KEYWORDS,
-    )
-
-    matches = list(
-        dict.fromkeys(
-            matches_1 + matches_2
-        )
-    )
-
-    if matches:
-
-        return True
-
-    return False
 
 
 # =========================================================
 # SOURCE SCORE
 # =========================================================
 
-def source_score(
-    source: str,
-) -> int:
+SOURCE_PRIORITY_SCORE = {
 
-    source = normalize_text(
-        source
-    )
+    "reuters": 100,
 
-    if not source:
-        return 0
+    "bloomberg": 95,
 
-    source_lower = source.lower()
+    "cnbc": 90,
 
-    # ---------------------------------------------
-    # EXACT / PRIORITY
-    # ---------------------------------------------
+    "wall street journal": 90,
 
-    for index, priority in enumerate(
-        FUNDAMENTAL_SOURCE_PRIORITY
-    ):
+    "financial times": 90,
 
-        if priority.lower() in source_lower:
+    "investing.com": 80,
 
-            # Sumber pertama = score tertinggi
-            return 100 - (
-                index * 5
-            )
+    "fxstreet": 80,
 
-    # ---------------------------------------------
-    # OTHER TRUSTED SOURCES
-    # ---------------------------------------------
-
-    trusted = [
-
-        "marketwatch",
-
-        "yahoo finance",
-
-        "kitco",
-
-        "forex.com",
-
-        "dailyfx",
-
-        "bloomberg",
-
-        "cnbc",
-
-        "reuters",
-
-    ]
-
-    for name in trusted:
-
-        if name in source_lower:
-
-            return 60
-
-    return 20
+}
 
 
 # =========================================================
-# NEWS ID
+# HELPERS
 # =========================================================
 
-def generate_news_id(
-    news: Dict[str, Any],
+def _normalize_text(
+    value: Any,
 ) -> str:
 
-    source = normalize_text(
-        news.get(
-            "source"
-        )
-    )
+    if value is None:
+        return ""
 
-    title = normalize_text(
-        news.get(
-            "title"
-        )
-    )
+    return str(value).strip()
 
-    url = normalize_text(
-        news.get(
-            "url"
-        )
-    )
 
-    published = normalize_text(
-        news.get(
-            "published_at"
-        )
-    )
+# =========================================================
+# PARSE DATE
+# =========================================================
 
-    raw = "|".join(
-        [
-            source,
-            title,
-            url,
-            published,
-        ]
-    )
+def _parse_published_at(
+    value: str,
+) -> Optional[datetime]:
 
-    return hashlib.sha256(
-        raw.encode(
-            "utf-8"
+    if not value:
+        return None
+
+    try:
+
+        value = value.strip()
+
+        if value.endswith("Z"):
+            value = value[:-1] + "+00:00"
+
+        dt = datetime.fromisoformat(value)
+
+        if dt.tzinfo is None:
+            dt = dt.replace(
+                tzinfo=timezone.utc
+            )
+
+        return dt.astimezone(
+            timezone.utc
         )
-    ).hexdigest()
+
+    except Exception:
+
+        logger.warning(
+            "Tidak dapat membaca publishedAt: %s",
+            value,
+        )
+
+        return None
 
 
 # =========================================================
 # CACHE DIRECTORY
 # =========================================================
 
-def ensure_cache_directory(
-    filepath: str,
+def _ensure_cache_directory(
+    cache_file: str,
 ) -> None:
-
-    directory = os.path.dirname(
-        filepath
-    )
-
-    if not directory:
-        return
 
     try:
 
-        os.makedirs(
-            directory,
-            exist_ok=True,
+        path = Path(
+            cache_file
         )
+
+        if path.parent:
+
+            path.parent.mkdir(
+                parents=True,
+                exist_ok=True,
+            )
 
     except Exception:
 
         logger.exception(
-            "Gagal membuat directory cache: %s",
-            directory,
+            "Gagal membuat folder cache."
         )
 
 
@@ -599,516 +177,296 @@ def ensure_cache_directory(
 # LOAD CACHE
 # =========================================================
 
-def load_cache(
-    filepath: str,
+def load_news_cache(
+    cache_file: str,
 ) -> List[str]:
-
-    if not filepath:
-        return []
-
-    if not os.path.exists(
-        filepath
-    ):
-
-        return []
 
     try:
 
-        with open(
-            filepath,
+        path = Path(
+            cache_file
+        )
+
+        if not path.exists():
+
+            return []
+
+        with path.open(
             "r",
             encoding="utf-8",
-        ) as file:
+        ) as f:
 
-            data = json.load(
-                file
-            )
+            data = json.load(f)
 
-        if isinstance(
+        if not isinstance(
             data,
             list,
         ):
 
-            return [
-                str(item)
-                for item in data
-                if item
-            ]
+            return []
 
-        if isinstance(
-            data,
-            dict,
-        ):
-
-            items = data.get(
-                "items",
-                []
-            )
-
-            if isinstance(
-                items,
-                list,
-            ):
-
-                return [
-                    str(item)
-                    for item in items
-                    if item
-                ]
+        return [
+            str(item)
+            for item in data
+        ]
 
     except Exception:
 
         logger.exception(
             "Gagal membaca news cache: %s",
-            filepath,
+            cache_file,
         )
 
-    return []
+        return []
 
 
 # =========================================================
 # SAVE CACHE
 # =========================================================
 
-def save_cache(
-    filepath: str,
-    items: List[str],
-) -> bool:
-
-    if not filepath:
-        return False
+def save_news_cache(
+    cache_file: str,
+    cache: List[str],
+) -> None:
 
     try:
 
-        ensure_cache_directory(
-            filepath
+        _ensure_cache_directory(
+            cache_file
         )
 
-        clean_items = list(
+        # Jangan biarkan cache tumbuh tanpa batas.
+
+        cache = list(
             dict.fromkeys(
-                [
-                    str(item)
-                    for item in items
-                    if item
-                ]
+                cache
             )
+        )[-500:]
+
+        path = Path(
+            cache_file
         )
 
-        clean_items = clean_items[
-            -MAX_CACHE_ITEMS:
-        ]
-
-        with open(
-            filepath,
+        with path.open(
             "w",
             encoding="utf-8",
-        ) as file:
+        ) as f:
 
             json.dump(
-                clean_items,
-                file,
+                cache,
+                f,
                 ensure_ascii=False,
                 indent=2,
             )
-
-        return True
 
     except Exception:
 
         logger.exception(
             "Gagal menyimpan news cache: %s",
-            filepath,
+            cache_file,
         )
 
-        return False
-
 
 # =========================================================
-# CHECK DUPLICATE
+# ARTICLE ID
 # =========================================================
 
-def is_duplicate_news(
-    news_id: str,
-    cache_file: str,
-) -> bool:
-
-    if not NEWS_PREVENT_DUPLICATE:
-        return False
-
-    cache = load_cache(
-        cache_file
-    )
-
-    return news_id in cache
-
-
-# =========================================================
-# MARK NEWS AS SENT
-# =========================================================
-
-def mark_news_as_sent(
-    news_id: str,
-    cache_file: str,
-) -> bool:
-
-    if not NEWS_PREVENT_DUPLICATE:
-        return True
-
-    cache = load_cache(
-        cache_file
-    )
-
-    if news_id not in cache:
-
-        cache.append(
-            news_id
-        )
-
-    return save_cache(
-        cache_file,
-        cache,
-    )
-
-
-# =========================================================
-# NORMALIZE PROVIDER ARTICLE
-# =========================================================
-
-def normalize_article(
+def get_article_id(
     article: Dict[str, Any],
-) -> Optional[Dict[str, Any]]:
+) -> str:
 
-    if not isinstance(
-        article,
-        dict,
-    ):
-
-        return None
-
-    # ---------------------------------------------
-    # TITLE
-    # ---------------------------------------------
-
-    title = (
-        article.get("title")
-        or article.get("headline")
-        or article.get("name")
-        or ""
-    )
-
-    title = normalize_text(
-        title
-    )
-
-    if not title:
-        return None
-
-    # ---------------------------------------------
-    # DESCRIPTION
-    # ---------------------------------------------
-
-    description = (
-        article.get("description")
-        or article.get("summary")
-        or article.get("snippet")
-        or ""
-    )
-
-    description = normalize_text(
-        description
-    )
-
-    # ---------------------------------------------
-    # CONTENT
-    # ---------------------------------------------
-
-    content = (
-        article.get("content")
-        or article.get("body")
-        or article.get("text")
-        or ""
-    )
-
-    content = normalize_text(
-        content
-    )
-
-    # ---------------------------------------------
-    # URL
-    # ---------------------------------------------
-
-    url = (
+    url = _normalize_text(
         article.get("url")
-        or article.get("link")
-        or article.get("article_url")
-        or ""
     )
 
-    url = normalize_text(
-        url
+    if url:
+        return url
+
+    title = _normalize_text(
+        article.get("title")
     )
 
-    # ---------------------------------------------
-    # SOURCE
-    # ---------------------------------------------
-
-    source_value = (
-        article.get("source")
-        or article.get("publisher")
-        or article.get("site")
-        or ""
+    published = _normalize_text(
+        article.get("publishedAt")
     )
 
-    if isinstance(
-        source_value,
-        dict,
-    ):
-
-        source = (
-            source_value.get("name")
-            or source_value.get("title")
-            or ""
-        )
-
-    else:
-
-        source = source_value
-
-    source = normalize_text(
-        source
+    return (
+        f"{title}|{published}"
     )
-
-    # ---------------------------------------------
-    # PUBLISHED TIME
-    # ---------------------------------------------
-
-    published_at = (
-        article.get("published_at")
-        or article.get("publishedAt")
-        or article.get("published")
-        or article.get("pubDate")
-        or article.get("datetime")
-        or article.get("date")
-        or ""
-    )
-
-    published_at = normalize_text(
-        published_at
-    )
-
-    # ---------------------------------------------
-    # IMAGE
-    # ---------------------------------------------
-
-    image_url = (
-        article.get("image")
-        or article.get("image_url")
-        or article.get("urlToImage")
-        or ""
-    )
-
-    image_url = normalize_text(
-        image_url
-    )
-
-    # ---------------------------------------------
-    # CATEGORY
-    # ---------------------------------------------
-
-    category = (
-        article.get("category")
-        or article.get("section")
-        or "markets"
-    )
-
-    category = normalize_text(
-        category
-    )
-
-    normalized = {
-
-        "title": title,
-
-        "description": description,
-
-        "content": content,
-
-        "url": url,
-
-        "source": source,
-
-        "published_at": published_at,
-
-        "published_at_wib": format_datetime_wib(
-            published_at
-        ),
-
-        "image_url": image_url,
-
-        "category": category,
-
-    }
-
-    # ---------------------------------------------
-    # NEWS ID
-    # ---------------------------------------------
-
-    normalized[
-        "news_id"
-    ] = generate_news_id(
-        normalized
-    )
-
-    return normalized
 
 
 # =========================================================
-# EXTRACT ARTICLES
+# BUILD SEARCH QUERY
 # =========================================================
 
-def extract_articles(
-    payload: Any,
-) -> List[Dict[str, Any]]:
+def build_news_query(
+    keywords: List[str],
+) -> str:
 
-    if not isinstance(
-        payload,
-        dict,
-    ):
+    cleaned = []
 
-        return []
+    for keyword in keywords:
 
-    # ---------------------------------------------
-    # COMMON API FORMAT
-    # ---------------------------------------------
-
-    possible_keys = [
-
-        "articles",
-
-        "data",
-
-        "results",
-
-        "news",
-
-        "items",
-
-    ]
-
-    for key in possible_keys:
-
-        value = payload.get(
-            key
+        keyword = _normalize_text(
+            keyword
         )
 
-        if isinstance(
-            value,
-            list,
-        ):
+        if not keyword:
+            continue
 
-            return [
-                item
-                for item in value
-                if isinstance(
-                    item,
-                    dict
-                )
-            ]
+        # Exact phrase untuk keyword
+        # yang mempunyai spasi.
 
-    # ---------------------------------------------
-    # DATA DICT
-    # ---------------------------------------------
+        if " " in keyword:
 
-    data = payload.get(
-        "data"
-    )
-
-    if isinstance(
-        data,
-        dict,
-    ):
-
-        for key in possible_keys:
-
-            value = data.get(
-                key
+            cleaned.append(
+                f'"{keyword}"'
             )
 
-            if isinstance(
-                value,
-                list,
-            ):
+        else:
 
-                return [
-                    item
-                    for item in value
-                    if isinstance(
-                        item,
-                        dict
-                    )
-                ]
+            cleaned.append(
+                keyword
+            )
 
-    return []
+    # NewsAPI mendukung OR.
+    # Query tetap dijaga agar tidak terlalu panjang.
+
+    query = " OR ".join(
+        cleaned
+    )
+
+    return query[:480]
 
 
 # =========================================================
-# API REQUEST
+# FETCH NEWS FROM API
 # =========================================================
 
-def request_news_api(
-    limit: int = DEFAULT_NEWS_LIMIT,
+def fetch_news(
+    keywords: Optional[List[str]] = None,
+    max_age_hours: int = 24,
+    page_size: int = 10,
 ) -> List[Dict[str, Any]]:
 
-    if not NEWS_API_URL:
+    # =====================================================
+    # API KEY
+    # =====================================================
 
-        logger.warning(
-            "NEWS_API_URL belum diisi."
+    api_key = _normalize_text(
+        NEWS_API_KEY
+    )
+
+    if not api_key:
+
+        logger.error(
+            "NEWS_API_KEY belum dikonfigurasi."
         )
 
         return []
 
-    if not NEWS_API_KEY:
+
+    # =====================================================
+    # API URL
+    # =====================================================
+
+    api_url = _normalize_text(
+        NEWS_API_URL
+    )
+
+    if not api_url:
+
+        api_url = (
+            DEFAULT_NEWS_API_URL
+        )
+
+
+    # =====================================================
+    # KEYWORDS
+    # =====================================================
+
+    if keywords is None:
+
+        keywords = (
+            FUNDAMENTAL_SEARCH_KEYWORDS
+        )
+
+
+    query = build_news_query(
+        keywords
+    )
+
+    if not query:
 
         logger.warning(
-            "NEWS_API_KEY belum diisi."
+            "News query kosong."
         )
 
         return []
 
-    limit = max(
-        1,
-        min(
-            int(limit),
-            100,
+
+    # =====================================================
+    # TIME WINDOW
+    # =====================================================
+
+    now = datetime.now(
+        timezone.utc
+    )
+
+    from_time = (
+        now
+        - timedelta(
+            hours=max_age_hours
         )
     )
 
+
     # =====================================================
-    # PARAMETER
+    # PARAMETERS
     # =====================================================
 
     params = {
 
-        "apiKey": NEWS_API_KEY,
+        "q": query,
 
-        "q": "gold OR XAUUSD",
+        "from": from_time.isoformat(),
 
-        "language": NEWS_SOURCE_LANGUAGE,
+        "to": now.isoformat(),
 
-        "limit": limit,
+        "language": "en",
+
+        "sortBy": "publishedAt",
+
+        "pageSize": max(
+            1,
+            min(
+                int(page_size),
+                100,
+            ),
+        ),
+
+        "page": 1,
+
+        "apiKey": api_key,
 
     }
+
+
+    # =====================================================
+    # REQUEST
+    # =====================================================
 
     try:
 
         logger.info(
-            "Mengambil berita XAUUSD | limit=%s",
-            limit,
+            "Mengambil berita XAU | "
+            "query=%s",
+            query,
         )
 
-        response = _http_session.get(
+        response = requests.get(
 
-            NEWS_API_URL,
+            api_url,
 
             params=params,
 
@@ -1116,309 +474,463 @@ def request_news_api(
 
         )
 
+
+        # =================================================
+        # HTTP ERROR
+        # =================================================
+
         response.raise_for_status()
 
-        payload = response.json()
 
-        articles = extract_articles(
-            payload
+        # =================================================
+        # JSON
+        # =================================================
+
+        data = response.json()
+
+
+    except requests.RequestException:
+
+        logger.exception(
+            "Request NewsAPI gagal."
         )
 
-        logger.info(
-            "News API mengembalikan %s artikel.",
-            len(articles),
+        return []
+
+
+    except ValueError:
+
+        logger.exception(
+            "Response NewsAPI bukan JSON valid."
         )
 
-        return articles
+        return []
 
-    except requests.RequestException as exc:
-
-        logger.error(
-            "News API request error: %s",
-            exc,
-        )
-
-    except ValueError as exc:
-
-        logger.error(
-            "News API JSON error: %s",
-            exc,
-        )
 
     except Exception:
 
         logger.exception(
-            "Unexpected error saat mengambil berita."
+            "Error tidak diketahui ketika mengambil berita."
         )
 
-    return []
+        return []
+
+
+    # =====================================================
+    # API STATUS
+    # =====================================================
+
+    if data.get("status") != "ok":
+
+        logger.error(
+            "NewsAPI error | %s",
+            data,
+        )
+
+        return []
+
+
+    # =====================================================
+    # ARTICLES
+    # =====================================================
+
+    articles = data.get(
+        "articles",
+        []
+    )
+
+    if not isinstance(
+        articles,
+        list,
+    ):
+
+        return []
+
+
+    logger.info(
+        "NewsAPI mengembalikan %s artikel.",
+        len(articles),
+    )
+
+
+    return articles
 
 
 # =========================================================
-# VALIDATE ARTICLE
+# BLOCKED KEYWORD CHECK
 # =========================================================
 
-def validate_article(
+def contains_blocked_keyword(
     article: Dict[str, Any],
 ) -> bool:
 
-    title = article.get(
-        "title",
-        ""
+    title = _normalize_text(
+        article.get("title")
     )
 
-    description = article.get(
-        "description",
-        ""
+    description = _normalize_text(
+        article.get("description")
     )
 
-    content = article.get(
-        "content",
-        ""
+    content = _normalize_text(
+        article.get("content")
     )
 
-    source = article.get(
-        "source",
-        ""
-    )
+    text = (
+        f"{title} "
+        f"{description} "
+        f"{content}"
+    ).lower()
 
-    url = article.get(
-        "url",
-        ""
-    )
 
-    published_at = article.get(
-        "published_at",
-        ""
-    )
-
-    # ---------------------------------------------
-    # TITLE
-    # ---------------------------------------------
-
-    if not title:
-        return False
-
-    # ---------------------------------------------
-    # SOURCE
-    # ---------------------------------------------
-
-    if (
-        NEWS_REQUIRE_SOURCE
-        and not source
+    for keyword in (
+        FUNDAMENTAL_BLOCKED_KEYWORDS
     ):
 
-        logger.debug(
-            "Artikel ditolak: source kosong."
-        )
+        keyword = _normalize_text(
+            keyword
+        ).lower()
 
-        return False
+        if not keyword:
+            continue
 
-    # ---------------------------------------------
-    # URL
-    # ---------------------------------------------
+        if keyword in text:
 
-    if (
-        NEWS_REQUIRE_URL
-        and not is_valid_url(
-            url
-        )
-    ):
+            logger.info(
+                "Berita diblokir | keyword=%s | title=%s",
+                keyword,
+                title,
+            )
 
-        logger.debug(
-            "Artikel ditolak: URL tidak valid | %s",
-            title,
-        )
+            return True
 
-        return False
 
-    # ---------------------------------------------
-    # PUBLISHED DATE
-    # ---------------------------------------------
-
-    age = news_age_minutes(
-        published_at
-    )
-
-    if age is None:
-
-        logger.debug(
-            "Artikel ditolak: waktu publikasi tidak valid | %s",
-            title,
-        )
-
-        return False
-
-    # Berita masa depan mencurigakan.
-    if age < -5:
-
-        logger.debug(
-            "Artikel ditolak: tanggal publikasi masa depan | %s",
-            title,
-        )
-
-        return False
-
-    # ---------------------------------------------
-    # MAX AGE
-    # ---------------------------------------------
-
-    max_age = NEWS_MAX_AGE_MINUTES
-
-    if (
-        age > max_age
-    ):
-
-        logger.debug(
-            "Artikel terlalu lama | age=%.1f min | title=%s",
-            age,
-            title,
-        )
-
-        return False
-
-    # ---------------------------------------------
-    # BLOCKED
-    # ---------------------------------------------
-
-    if is_blocked_news(
-        title,
-        description,
-        content,
-    ):
-
-        return False
-
-    # ---------------------------------------------
-    # RELEVANCE
-    # ---------------------------------------------
-
-    if not is_relevant_news(
-        title,
-        description,
-        content,
-    ):
-
-        logger.debug(
-            "Artikel tidak relevan dengan XAUUSD | %s",
-            title,
-        )
-
-        return False
-
-    return True
+    return False
 
 
 # =========================================================
-# SCORE ARTICLE
+# GOLD RELEVANCE CHECK
 # =========================================================
 
-def score_article(
+def is_gold_relevant(
     article: Dict[str, Any],
-) -> float:
+) -> bool:
 
-    title = article.get(
-        "title",
-        ""
+    title = _normalize_text(
+        article.get("title")
     )
 
-    description = article.get(
-        "description",
-        ""
+    description = _normalize_text(
+        article.get("description")
     )
 
-    content = article.get(
-        "content",
-        ""
+    content = _normalize_text(
+        article.get("content")
     )
 
-    source = article.get(
-        "source",
-        ""
-    )
+    text = (
+        f"{title} "
+        f"{description} "
+        f"{content}"
+    ).lower()
 
-    published_at = article.get(
-        "published_at",
-        ""
-    )
 
-    text = " ".join(
-        [
-            title,
-            description,
-            content,
-        ]
-    )
+    relevance_keywords = [
 
-    # ---------------------------------------------
-    # SOURCE SCORE
-    # ---------------------------------------------
+        "gold",
 
-    score = float(
-        source_score(
-            source
+        "xau",
+
+        "xauusd",
+
+        "us dollar",
+
+        "usd",
+
+        "federal reserve",
+
+        "fed",
+
+        "interest rate",
+
+        "treasury yield",
+
+        "bond yield",
+
+        "inflation",
+
+        "monetary policy",
+
+        "central bank",
+
+        "geopolitical",
+
+        "geopolitics",
+
+        "middle east",
+
+        "war",
+
+    ]
+
+
+    for keyword in relevance_keywords:
+
+        if keyword in text:
+
+            return True
+
+
+    return False
+
+
+# =========================================================
+# AGE CHECK
+# =========================================================
+
+def is_article_recent(
+    article: Dict[str, Any],
+    max_age_hours: int,
+) -> bool:
+
+    published_at = _parse_published_at(
+        _normalize_text(
+            article.get(
+                "publishedAt"
+            )
         )
     )
 
-    # ---------------------------------------------
-    # KEYWORD SCORE
-    # ---------------------------------------------
+    if published_at is None:
 
-    matches = keyword_match(
-        text,
-        FUNDAMENTAL_SEARCH_KEYWORDS,
+        return False
+
+
+    now = datetime.now(
+        timezone.utc
     )
 
-    score += min(
-        len(matches) * 8,
-        40,
+    age = (
+        now
+        - published_at
     )
 
-    # ---------------------------------------------
-    # GOLD DIRECT SCORE
-    # ---------------------------------------------
 
-    gold_matches = keyword_match(
-        text,
-        [
-            "gold",
-            "XAUUSD",
-            "XAU/USD",
-            "gold price",
-        ],
+    if age.total_seconds() < 0:
+
+        # Artikel sedikit di masa depan
+        # akibat perbedaan clock masih diterima.
+
+        return True
+
+
+    return (
+        age
+        <= timedelta(
+            hours=max_age_hours
+        )
     )
 
-    score += min(
-        len(gold_matches) * 10,
-        30,
+
+# =========================================================
+# SOURCE SCORE
+# =========================================================
+
+def get_source_score(
+    article: Dict[str, Any],
+) -> int:
+
+    source = article.get(
+        "source"
     )
 
-    # ---------------------------------------------
-    # FRESHNESS
-    # ---------------------------------------------
+    if not isinstance(
+        source,
+        dict,
+    ):
 
-    age = news_age_minutes(
-        published_at
+        return 0
+
+
+    name = _normalize_text(
+        source.get("name")
+    ).lower()
+
+
+    if not name:
+        return 0
+
+
+    # Exact / partial matching.
+
+    for source_name, score in (
+        SOURCE_PRIORITY_SCORE.items()
+    ):
+
+        if source_name in name:
+
+            return score
+
+
+    # Fallback untuk source lain.
+
+    return 20
+
+
+# =========================================================
+# RECENCY SCORE
+# =========================================================
+
+def get_recency_score(
+    article: Dict[str, Any],
+) -> int:
+
+    published_at = _parse_published_at(
+        _normalize_text(
+            article.get(
+                "publishedAt"
+            )
+        )
     )
 
-    if age is not None:
+    if published_at is None:
 
-        if age <= 15:
+        return 0
+
+
+    now = datetime.now(
+        timezone.utc
+    )
+
+    age_minutes = max(
+        0,
+        int(
+            (
+                now
+                - published_at
+            ).total_seconds()
+            / 60
+        ),
+    )
+
+
+    # Berita lebih baru mendapatkan score lebih tinggi.
+
+    if age_minutes <= 15:
+        return 100
+
+    if age_minutes <= 30:
+        return 90
+
+    if age_minutes <= 60:
+        return 80
+
+    if age_minutes <= 120:
+        return 65
+
+    if age_minutes <= 360:
+        return 45
+
+    if age_minutes <= 720:
+        return 30
+
+    return 15
+
+
+# =========================================================
+# RELEVANCE SCORE
+# =========================================================
+
+def get_relevance_score(
+    article: Dict[str, Any],
+) -> int:
+
+    title = _normalize_text(
+        article.get("title")
+    ).lower()
+
+    description = _normalize_text(
+        article.get("description")
+    ).lower()
+
+    content = _normalize_text(
+        article.get("content")
+    ).lower()
+
+
+    score = 0
+
+
+    # Title jauh lebih penting.
+
+    for keyword in (
+        FUNDAMENTAL_SEARCH_KEYWORDS
+    ):
+
+        keyword = _normalize_text(
+            keyword
+        ).lower()
+
+        if not keyword:
+            continue
+
+
+        if keyword in title:
+
             score += 30
 
-        elif age <= 30:
-            score += 25
 
-        elif age <= 60:
-            score += 20
+        elif keyword in description:
 
-        elif age <= 120:
             score += 10
 
-        elif age <= 180:
+
+        elif keyword in content:
+
             score += 5
 
-    return score
+
+    return min(
+        score,
+        150,
+    )
+
+
+# =========================================================
+# TOTAL ARTICLE SCORE
+# =========================================================
+
+def calculate_article_score(
+    article: Dict[str, Any],
+) -> int:
+
+    source_score = (
+        get_source_score(
+            article
+        )
+    )
+
+    recency_score = (
+        get_recency_score(
+            article
+        )
+    )
+
+    relevance_score = (
+        get_relevance_score(
+            article
+        )
+    )
+
+
+    total = (
+        source_score
+        + recency_score
+        + relevance_score
+    )
+
+
+    return total
 
 
 # =========================================================
@@ -1426,615 +938,538 @@ def score_article(
 # =========================================================
 
 def filter_articles(
-    raw_articles: List[Dict[str, Any]],
+    articles: List[Dict[str, Any]],
+    max_age_hours: int,
+    cache_file: str,
 ) -> List[Dict[str, Any]]:
 
-    valid = []
-
-    seen = set()
-
-    for raw_article in raw_articles:
-
-        article = normalize_article(
-            raw_article
+    cache = set(
+        load_news_cache(
+            cache_file
         )
+    )
 
-        if article is None:
-            continue
 
-        news_id = article.get(
-            "news_id"
-        )
+    filtered = []
 
-        # ---------------------------------------------
-        # DUPLICATE DALAM RESPONSE
-        # ---------------------------------------------
 
-        if news_id in seen:
+    for article in articles:
+
+        if not isinstance(
+            article,
+            dict,
+        ):
 
             continue
 
-        seen.add(
-            news_id
+
+        # =================================================
+        # REQUIRED DATA
+        # =================================================
+
+        title = _normalize_text(
+            article.get("title")
         )
 
-        # ---------------------------------------------
-        # VALIDATION
-        # ---------------------------------------------
+        url = _normalize_text(
+            article.get("url")
+        )
 
-        if not validate_article(
+        published_at = _normalize_text(
+            article.get(
+                "publishedAt"
+            )
+        )
+
+
+        if not title:
+
+            continue
+
+
+        if not url:
+
+            continue
+
+
+        if not published_at:
+
+            continue
+
+
+        # =================================================
+        # DUPLICATE
+        # =================================================
+
+        article_id = get_article_id(
+            article
+        )
+
+        if article_id in cache:
+
+            logger.info(
+                "Skip duplicate news | %s",
+                title,
+            )
+
+            continue
+
+
+        # =================================================
+        # RECENT
+        # =================================================
+
+        if not is_article_recent(
+            article,
+            max_age_hours,
+        ):
+
+            continue
+
+
+        # =================================================
+        # BLOCKED
+        # =================================================
+
+        if contains_blocked_keyword(
             article
         ):
 
             continue
 
-        # ---------------------------------------------
+
+        # =================================================
+        # GOLD RELEVANT
+        # =================================================
+
+        if not is_gold_relevant(
+            article
+        ):
+
+            continue
+
+
+        # =================================================
         # SCORE
-        # ---------------------------------------------
+        # =================================================
 
-        article[
-            "score"
-        ] = score_article(
+        article["_score"] = (
+            calculate_article_score(
+                article
+            )
+        )
+
+
+        filtered.append(
             article
         )
 
-        valid.append(
-            article
-        )
 
-    # ---------------------------------------------
+    # =====================================================
     # SORT
-    # ---------------------------------------------
+    # =====================================================
 
-    valid.sort(
+    filtered.sort(
+
         key=lambda item: (
+
             item.get(
-                "score",
+                "_score",
                 0
             ),
-            -(
-                news_age_minutes(
-                    item.get(
-                        "published_at"
-                    )
-                )
-                or 999999
+
+            item.get(
+                "publishedAt",
+                ""
             ),
+
         ),
+
         reverse=True,
+
     )
 
-    return valid
+
+    return filtered
 
 
 # =========================================================
-# FETCH LATEST NEWS
+# GET LATEST FUNDAMENTAL NEWS
 # =========================================================
 
-def fetch_latest_news(
+def get_latest_fundamental_news(
     limit: Optional[int] = None,
 ) -> List[Dict[str, Any]]:
 
     if limit is None:
 
-        limit = NEWS_FETCH_LIMIT
-
-    raw_articles = request_news_api(
-        limit=limit
-    )
-
-    if not raw_articles:
-
-        logger.warning(
-            "Tidak ada raw news dari provider."
+        limit = (
+            FUNDAMENTAL_NEWS_PER_UPDATE
         )
 
-        return []
 
-    articles = filter_articles(
-        raw_articles
+    articles = fetch_news(
+
+        keywords=(
+            FUNDAMENTAL_SEARCH_KEYWORDS
+        ),
+
+        max_age_hours=(
+            FUNDAMENTAL_MAX_NEWS_AGE_HOURS
+        ),
+
+        page_size=10,
+
     )
 
-    logger.info(
-        "Berita valid setelah filter: %s",
-        len(articles),
-    )
-
-    return articles
-
-
-# =========================================================
-# GET BEST NEWS
-# =========================================================
-
-def get_latest_news(
-    cache_file: Optional[str] = None,
-) -> Optional[Dict[str, Any]]:
-
-    if cache_file is None:
-
-        cache_file = (
-            FUNDAMENTAL_NEWS_CACHE_FILE
-        )
-
-    articles = fetch_latest_news(
-        limit=NEWS_FETCH_LIMIT
-    )
 
     if not articles:
 
-        logger.warning(
-            "Tidak ditemukan berita XAUUSD yang valid."
-        )
+        return []
 
-        return None
+
+    filtered = filter_articles(
+
+        articles,
+
+        max_age_hours=(
+            FUNDAMENTAL_MAX_NEWS_AGE_HOURS
+        ),
+
+        cache_file=(
+            FUNDAMENTAL_NEWS_CACHE_FILE
+        ),
+
+    )
+
+
+    selected = filtered[
+        :max(
+            1,
+            int(limit)
+        )
+    ]
+
 
     # =====================================================
-    # CARI BERITA YANG BELUM PERNAH DIKIRIM
+    # SAVE CACHE
     # =====================================================
 
-    for article in articles:
+    if selected:
 
-        news_id = article.get(
-            "news_id"
+        cache = load_news_cache(
+            FUNDAMENTAL_NEWS_CACHE_FILE
         )
 
-        if not news_id:
-            continue
 
-        if is_duplicate_news(
-            news_id,
-            cache_file,
-        ):
+        for article in selected:
 
-            logger.debug(
-                "Berita duplicate dilewati | %s",
-                article.get(
-                    "title"
-                ),
+            article_id = (
+                get_article_id(
+                    article
+                )
             )
 
-            continue
+            if article_id:
 
-        logger.info(
-            "Berita terbaik ditemukan | "
-            "score=%.1f | source=%s | title=%s",
-            article.get(
-                "score",
-                0
-            ),
-            article.get(
-                "source"
-            ),
-            article.get(
-                "title"
-            ),
+                cache.append(
+                    article_id
+                )
+
+
+        save_news_cache(
+
+            FUNDAMENTAL_NEWS_CACHE_FILE,
+
+            cache,
+
         )
 
-        return article
 
-    logger.info(
-        "Semua berita kandidat sudah pernah digunakan."
-    )
-
-    return None
+    return selected
 
 
 # =========================================================
-# GET FUNDAMENTAL NEWS
+# GET LATEST COMBINED NEWS
 # =========================================================
 
-def get_fundamental_news() -> Optional[Dict[str, Any]]:
+def get_latest_combined_news(
+    limit: Optional[int] = None,
+) -> List[Dict[str, Any]]:
 
-    """
-    Mengambil 1 berita terbaru untuk Fundamental AI.
+    if limit is None:
 
-    Tidak menentukan BUY / SELL.
-    """
-
-    logger.info(
-        "Mencari berita FUNDAMENTAL terbaru..."
-    )
-
-    news = get_latest_news(
-        cache_file=(
-            FUNDAMENTAL_NEWS_CACHE_FILE
-        )
-    )
-
-    if news is None:
-
-        logger.info(
-            "Tidak ada berita fundamental baru."
+        limit = (
+            COMBINED_NEWS_PER_UPDATE
         )
 
-        return None
 
-    news[
-        "mode"
-    ] = "fundamental"
+    articles = fetch_news(
 
-    return news
+        keywords=(
+            FUNDAMENTAL_SEARCH_KEYWORDS
+        ),
 
+        max_age_hours=(
+            COMBINED_MAX_NEWS_AGE_HOURS
+        ),
 
-# =========================================================
-# GET COMBINED NEWS
-# =========================================================
+        page_size=10,
 
-def get_combined_news() -> Optional[Dict[str, Any]]:
-
-    """
-    Mengambil 1 berita terbaru untuk Combined AI.
-
-    Combined AI nantinya menggabungkan:
-
-        Fundamental
-              +
-        SMC
-
-    Fungsi ini hanya menyediakan berita.
-    """
-
-    logger.info(
-        "Mencari berita untuk COMBINED AI..."
     )
 
-    news = get_latest_news(
+
+    if not articles:
+
+        return []
+
+
+    filtered = filter_articles(
+
+        articles,
+
+        max_age_hours=(
+            COMBINED_MAX_NEWS_AGE_HOURS
+        ),
+
         cache_file=(
             COMBINED_NEWS_CACHE_FILE
-        )
+        ),
+
     )
 
-    if news is None:
 
-        logger.info(
-            "Tidak ada berita combined baru."
+    selected = filtered[
+        :max(
+            1,
+            int(limit)
         )
+    ]
+
+
+    # =====================================================
+    # SAVE CACHE
+    # =====================================================
+
+    if selected:
+
+        cache = load_news_cache(
+            COMBINED_NEWS_CACHE_FILE
+        )
+
+
+        for article in selected:
+
+            article_id = (
+                get_article_id(
+                    article
+                )
+            )
+
+            if article_id:
+
+                cache.append(
+                    article_id
+                )
+
+
+        save_news_cache(
+
+            COMBINED_NEWS_CACHE_FILE,
+
+            cache,
+
+        )
+
+
+    return selected
+
+
+# =========================================================
+# GET ONE LATEST NEWS
+# =========================================================
+
+def get_one_latest_news() -> Optional[Dict[str, Any]]:
+
+    news = get_latest_fundamental_news(
+        limit=1
+    )
+
+
+    if not news:
 
         return None
 
-    news[
-        "mode"
-    ] = "combined"
 
-    return news
+    return news[0]
 
 
 # =========================================================
-# MARK FUNDAMENTAL SENT
+# FORMAT ARTICLE DATA
 # =========================================================
 
-def mark_fundamental_sent(
-    news: Dict[str, Any],
-) -> bool:
-
-    if not news:
-        return False
-
-    news_id = news.get(
-        "news_id"
-    )
-
-    if not news_id:
-        return False
-
-    return mark_news_as_sent(
-        news_id,
-        FUNDAMENTAL_NEWS_CACHE_FILE,
-    )
-
-
-# =========================================================
-# MARK COMBINED SENT
-# =========================================================
-
-def mark_combined_sent(
-    news: Dict[str, Any],
-) -> bool:
-
-    if not news:
-        return False
-
-    news_id = news.get(
-        "news_id"
-    )
-
-    if not news_id:
-        return False
-
-    return mark_news_as_sent(
-        news_id,
-        COMBINED_NEWS_CACHE_FILE,
-    )
-
-
-# =========================================================
-# NEWS SUMMARY DATA
-# =========================================================
-
-def build_news_context(
-    news: Dict[str, Any],
+def normalize_article(
+    article: Dict[str, Any],
 ) -> Dict[str, Any]:
 
-    if not news:
+    source = article.get(
+        "source"
+    )
 
-        return {
+    if not isinstance(
+        source,
+        dict,
+    ):
 
-            "available": False,
+        source = {}
 
-            "title": "",
-
-            "source": "",
-
-            "url": "",
-
-            "published_at": "",
-
-            "published_at_wib": "",
-
-            "description": "",
-
-            "content": "",
-
-            "score": 0,
-
-        }
 
     return {
 
-        "available": True,
-
-        "news_id": news.get(
-            "news_id",
-            "",
+        "id": get_article_id(
+            article
         ),
 
-        "title": news.get(
-            "title",
-            "",
+        "title": _normalize_text(
+            article.get(
+                "title"
+            )
         ),
 
-        "source": news.get(
-            "source",
-            "",
+        "description": _normalize_text(
+            article.get(
+                "description"
+            )
         ),
 
-        "url": news.get(
-            "url",
-            "",
+        "content": _normalize_text(
+            article.get(
+                "content"
+            )
         ),
 
-        "published_at": news.get(
-            "published_at",
-            "",
+        "source": _normalize_text(
+            source.get(
+                "name"
+            )
         ),
 
-        "published_at_wib": news.get(
-            "published_at_wib",
-            "",
+        "author": _normalize_text(
+            article.get(
+                "author"
+            )
         ),
 
-        "description": news.get(
-            "description",
-            "",
+        "published_at": _normalize_text(
+            article.get(
+                "publishedAt"
+            )
         ),
 
-        "content": news.get(
-            "content",
-            "",
+        "url": _normalize_text(
+            article.get(
+                "url"
+            )
         ),
 
-        "score": news.get(
-            "score",
-            0,
+        "image_url": _normalize_text(
+            article.get(
+                "urlToImage"
+            )
+        ),
+
+        "score": article.get(
+            "_score",
+            0
         ),
 
     }
 
 
 # =========================================================
-# NEWS TELEGRAM FORMAT
+# TEST FUNCTION
 # =========================================================
 
-def format_news_for_telegram(
-    news: Dict[str, Any],
-) -> str:
+def test_news_service() -> None:
 
-    if not news:
-
-        return (
-            "📰 *FUNDAMENTAL NEWS*\n"
-            "━━━━━━━━━━━━━━━━━━\n"
-            "Tidak ada berita fundamental valid."
-        )
-
-    title = normalize_text(
-        news.get(
-            "title"
-        )
+    logger.info(
+        "======================================"
     )
 
-    source = normalize_text(
-        news.get(
-            "source"
-        )
+    logger.info(
+        "TEST NEWS SERVICE"
     )
 
-    published = normalize_text(
-        news.get(
-            "published_at_wib"
-        )
+    logger.info(
+        "======================================"
     )
 
-    description = normalize_text(
-        news.get(
-            "description"
-        )
-    )
 
-    url = normalize_text(
-        news.get(
-            "url"
-        )
-    )
-
-    text = (
-        "📰 *XAU FUNDAMENTAL NEWS*\n"
-        "━━━━━━━━━━━━━━━━━━\n\n"
-        f"📌 *{title}*\n\n"
-        f"🏦 Sumber: *{source or '-'}*\n"
-        f"🕒 Waktu: *{published or '-'}*\n\n"
-    )
-
-    if description:
-
-        text += (
-            f"📝 {description}\n\n"
-        )
-
-    if url:
-
-        text += (
-            f"🔗 [Baca Artikel Asli]({url})"
-        )
-
-    return text
-
-
-# =========================================================
-# NEWS STATUS
-# =========================================================
-
-def get_news_status() -> Dict[str, Any]:
-
-    return {
-
-        "api_configured": bool(
-            NEWS_API_KEY
-        ),
-
-        "url_configured": bool(
-            NEWS_API_URL
-        ),
-
-        "source_language": (
-            NEWS_SOURCE_LANGUAGE
-        ),
-
-        "output_language": (
-            NEWS_OUTPUT_LANGUAGE
-        ),
-
-        "fetch_limit": (
-            NEWS_FETCH_LIMIT
-        ),
-
-        "max_age_minutes": (
-            NEWS_MAX_AGE_MINUTES
-        ),
-
-        "request_timeout": (
-            NEWS_REQUEST_TIMEOUT
-        ),
-
-        "fundamental_cache": (
-            FUNDAMENTAL_NEWS_CACHE_FILE
-        ),
-
-        "combined_cache": (
-            COMBINED_NEWS_CACHE_FILE
-        ),
-
-    }
-
-
-# =========================================================
-# TEST CONNECTION
-# =========================================================
-
-def test_news_connection() -> Dict[str, Any]:
-
-    status = get_news_status()
-
-    if not status[
-        "api_configured"
-    ]:
-
-        return {
-
-            "success": False,
-
-            "error": (
-                "NEWS_API_KEY belum diisi."
-            ),
-
-        }
-
-    if not status[
-        "url_configured"
-    ]:
-
-        return {
-
-            "success": False,
-
-            "error": (
-                "NEWS_API_URL belum diisi."
-            ),
-
-        }
-
-    try:
-
-        articles = request_news_api(
+    news = (
+        get_latest_fundamental_news(
             limit=1
         )
+    )
 
-        return {
 
-            "success": bool(
-                articles
-            ),
+    if not news:
 
-            "articles": len(
-                articles
-            ),
-
-        }
-
-    except Exception as exc:
-
-        logger.exception(
-            "News connection test gagal."
+        logger.warning(
+            "Tidak ada berita valid."
         )
 
-        return {
+        return
 
-            "success": False,
 
-            "error": str(
-                exc
-            ),
+    article = normalize_article(
+        news[0]
+    )
 
-        }
+
+    logger.info(
+        "NEWS TERPILIH"
+    )
+
+    logger.info(
+        "Title   : %s",
+        article["title"],
+    )
+
+    logger.info(
+        "Source  : %s",
+        article["source"],
+    )
+
+    logger.info(
+        "Published: %s",
+        article["published_at"],
+    )
+
+    logger.info(
+        "Score   : %s",
+        article["score"],
+    )
+
+    logger.info(
+        "URL     : %s",
+        article["url"],
+    )
 
 
 # =========================================================
-# MODULE LOAD LOG
+# MAIN
 # =========================================================
 
-logger.info(
-    "News Service loaded | "
-    "API configured=%s | "
-    "URL configured=%s | "
-    "fetch_limit=%s | "
-    "max_age=%s minutes",
-    bool(
-        NEWS_API_KEY
-    ),
-    bool(
-        NEWS_API_URL
-    ),
-    NEWS_FETCH_LIMIT,
-    NEWS_MAX_AGE_MINUTES,
-)
+if __name__ == "__main__":
+
+    logging.basicConfig(
+        level=logging.INFO,
+        format=(
+            "%(asctime)s "
+            "[%(levelname)s] "
+            "%(name)s: "
+            "%(message)s"
+        ),
+    )
+
+    test_news_service()
