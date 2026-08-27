@@ -1,10 +1,15 @@
 """
+config/settings.py
+
 GLOBAL SETTINGS
 XAU AI SIGNAL BOT
+================
 
 Semua konfigurasi utama bot.
 
-Credential diambil dari environment variable / .env
+Credential:
+- Environment variable
+- .env
 
 ATURAN ENTRY SMC
 ----------------
@@ -19,13 +24,12 @@ ATURAN ENTRY SMC
        - Fair Value Gap
        - zona SMC valid lainnya
 6. Jangan mengejar harga.
-7. Pending order memiliki timeout 20 menit.
-8. Jika dalam 20 menit tidak tersentuh:
-       -> signal dianggap EXPIRED
-       -> signal di-SKIP.
-9. Radius pencarian zona:
-       -> maksimum 100 pips.
-10. Untuk XAUUSD:
+7. Pending order timeout 20 menit.
+8. Jika tidak tersentuh:
+       -> EXPIRED
+       -> SKIP
+9. Radius zona maksimum 100 pips.
+10. XAUUSD:
        1 pip = 0.1 price
        100 pips = 10.0 price.
 """
@@ -71,7 +75,7 @@ def _int_env(
 
     except (
         TypeError,
-        ValueError
+        ValueError,
     ):
 
         return default
@@ -92,10 +96,28 @@ def _float_env(
 
     except (
         TypeError,
-        ValueError
+        ValueError,
     ):
 
         return default
+
+
+def _bool_env(
+    name,
+    default=True
+):
+    return (
+        _env(
+            name,
+            "true" if default else "false"
+        ).lower()
+        in (
+            "1",
+            "true",
+            "yes",
+            "on",
+        )
+    )
 
 
 # =========================================================
@@ -115,6 +137,66 @@ SOURCE_GROUP_ID = _int_env(
 
 
 # =========================================================
+# TELEGRAM MESSAGE
+# =========================================================
+
+TELEGRAM_PARSE_MODE = _env(
+    "TELEGRAM_PARSE_MODE",
+    "Markdown"
+)
+
+
+TELEGRAM_DISABLE_WEB_PAGE_PREVIEW = _bool_env(
+    "TELEGRAM_DISABLE_WEB_PAGE_PREVIEW",
+    True
+)
+
+
+# =========================================================
+# TELEGRAM SIGNAL SENDER
+# =========================================================
+#
+# Delay antar member.
+#
+# Default:
+# 0.15 detik.
+#
+# Bisa diubah melalui .env.
+# =========================================================
+
+SIGNAL_SEND_DELAY = _float_env(
+    "SIGNAL_SEND_DELAY",
+    0.15
+)
+
+
+# =========================================================
+# TELEGRAM RETRY
+# =========================================================
+
+TELEGRAM_RETRY_COUNT = _int_env(
+    "TELEGRAM_RETRY_COUNT",
+    3
+)
+
+
+TELEGRAM_RETRY_DELAY = _float_env(
+    "TELEGRAM_RETRY_DELAY",
+    2
+)
+
+
+# =========================================================
+# SIGNAL DETAIL
+# =========================================================
+
+SIGNAL_DETAIL_ENABLED = _bool_env(
+    "SIGNAL_DETAIL_ENABLED",
+    True
+)
+
+
+# =========================================================
 # TWELVE DATA
 # =========================================================
 
@@ -126,13 +208,6 @@ TWELVE_TOKEN = _env(
 
 # =========================================================
 # BACKWARD COMPATIBILITY
-# =========================================================
-#
-# File lama menggunakan:
-#
-# TWELVEDATA_API_KEY
-#
-# Jadi diarahkan ke TWELVE_TOKEN.
 # =========================================================
 
 TWELVEDATA_API_KEY = TWELVE_TOKEN
@@ -155,43 +230,11 @@ SYMBOL = SMC_SYMBOL
 # TIMEFRAME
 # =========================================================
 
-# ---------------------------------------------------------
-# STRUCTURE TIMEFRAME
-# ---------------------------------------------------------
-#
-# Digunakan untuk membaca:
-#
-# - Swing High
-# - Swing Low
-# - BOS
-# - CHoCH
-# - Struktur market
-# - Bias utama
-#
-# Default:
-# M5
-# ---------------------------------------------------------
-
 SMC_TF_STRUCTURE = _env(
     "SMC_TF_STRUCTURE",
     "5min"
 )
 
-
-# ---------------------------------------------------------
-# ENTRY TIMEFRAME
-# ---------------------------------------------------------
-#
-# Digunakan untuk:
-#
-# - retest
-# - rejection
-# - entry precision
-# - validasi M1
-#
-# Default:
-# M1
-# ---------------------------------------------------------
 
 SMC_TF_ENTRY = _env(
     "SMC_TF_ENTRY",
@@ -199,40 +242,21 @@ SMC_TF_ENTRY = _env(
 )
 
 
-TF_STRUCTURE = (
-    SMC_TF_STRUCTURE
-)
+TF_STRUCTURE = SMC_TF_STRUCTURE
 
 
-TF_ENTRY = (
-    SMC_TF_ENTRY
-)
+TF_ENTRY = SMC_TF_ENTRY
 
 
 # =========================================================
 # ENTRY TIMEFRAME PRIORITY
 # =========================================================
 #
-# Prioritas:
+# M1 > M5
 #
-# 1. Cari zona valid M1.
-# 2. Jika tidak ada -> cari zona M5.
-#
-# Dengan demikian:
-#
-# M1 valid
-#       ↓
-# ENTRY M1
-#
-# M1 tidak valid
-#       ↓
-# cari M5
-#       ↓
-# ENTRY M5
-#
-# Tidak ada zona
-#       ↓
-# NO TRADE
+# 1. Cari zona M1.
+# 2. Jika tidak ada -> M5.
+# 3. Jika tidak ada -> NO TRADE.
 # =========================================================
 
 SMC_ENTRY_PRIORITY = _env(
@@ -241,35 +265,15 @@ SMC_ENTRY_PRIORITY = _env(
 )
 
 
-# =========================================================
-# ALLOW ENTRY TIMEFRAME
-# =========================================================
-
-SMC_ALLOW_M1_ENTRY = (
-    _env(
-        "SMC_ALLOW_M1_ENTRY",
-        "true"
-    ).lower()
-    in (
-        "1",
-        "true",
-        "yes",
-        "on",
-    )
+SMC_ALLOW_M1_ENTRY = _bool_env(
+    "SMC_ALLOW_M1_ENTRY",
+    True
 )
 
 
-SMC_ALLOW_M5_ENTRY = (
-    _env(
-        "SMC_ALLOW_M5_ENTRY",
-        "true"
-    ).lower()
-    in (
-        "1",
-        "true",
-        "yes",
-        "on",
-    )
+SMC_ALLOW_M5_ENTRY = _bool_env(
+    "SMC_ALLOW_M5_ENTRY",
+    True
 )
 
 
@@ -277,45 +281,17 @@ SMC_ALLOW_M5_ENTRY = (
 # CANDLE SETTINGS
 # =========================================================
 
-# ---------------------------------------------------------
-# STRUCTURE CANDLES
-# ---------------------------------------------------------
-#
-# Manual /signal:
-#
-# gunakan 12 candle M5 CLOSED.
-#
-# 12 x M5 = 60 menit.
-# ---------------------------------------------------------
-
 SMC_CANDLES_FOR_STRUCTURE = _int_env(
     "SMC_CANDLES_FOR_STRUCTURE",
     12
 )
 
 
-# ---------------------------------------------------------
-# SCHEDULER LOOKBACK
-# ---------------------------------------------------------
-#
-# Digunakan scheduler otomatis.
-# ---------------------------------------------------------
-
 SMC_CANDLES_LOOKBACK = _int_env(
     "SMC_CANDLES_LOOKBACK",
     60
 )
 
-
-# ---------------------------------------------------------
-# ENTRY LOOKBACK
-# ---------------------------------------------------------
-#
-# Jumlah candle untuk analisa timeframe entry.
-# Default:
-#
-# M1 = 30 candle.
-# ---------------------------------------------------------
 
 SMC_CANDLES_ENTRY_LOOKBACK = _int_env(
     "SMC_CANDLES_ENTRY_LOOKBACK",
@@ -327,19 +303,13 @@ SMC_CANDLES_ENTRY_LOOKBACK = _int_env(
 # BACKWARD COMPATIBILITY
 # =========================================================
 
-CANDLES_FOR_STRUCTURE = (
-    SMC_CANDLES_FOR_STRUCTURE
-)
+CANDLES_FOR_STRUCTURE = SMC_CANDLES_FOR_STRUCTURE
 
 
-CANDLES_LOOKBACK = (
-    SMC_CANDLES_LOOKBACK
-)
+CANDLES_LOOKBACK = SMC_CANDLES_LOOKBACK
 
 
-CANDLES_ENTRY_LOOKBACK = (
-    SMC_CANDLES_ENTRY_LOOKBACK
-)
+CANDLES_ENTRY_LOOKBACK = SMC_CANDLES_ENTRY_LOOKBACK
 
 
 # =========================================================
@@ -350,11 +320,9 @@ CANDLES_ENTRY_LOOKBACK = (
 #
 # 1 pip = 0.1 price
 #
-# Contoh:
-#
-# 50 pips  = 5.0 price
-# 70 pips  = 7.0 price
-# 150 pips = 15.0 price
+# SL  = 50 pips  = 5.0 price
+# TP1 = 70 pips  = 7.0 price
+# TP2 = 150 pips = 15.0 price
 # =========================================================
 
 SMC_PIP_VALUE = _float_env(
@@ -363,29 +331,17 @@ SMC_PIP_VALUE = _float_env(
 )
 
 
-# =========================================================
-# STOP LOSS
-# =========================================================
-
 SMC_SL_PIPS = _float_env(
     "SMC_SL_PIPS",
     50
 )
 
 
-# =========================================================
-# TAKE PROFIT 1
-# =========================================================
-
 SMC_TP1_PIPS = _float_env(
     "SMC_TP1_PIPS",
     70
 )
 
-
-# =========================================================
-# TAKE PROFIT 2
-# =========================================================
 
 SMC_TP2_PIPS = _float_env(
     "SMC_TP2_PIPS",
@@ -419,44 +375,26 @@ SMC_TP2_DISTANCE = (
 # BACKWARD COMPATIBILITY
 # =========================================================
 
-SL_DISTANCE = (
-    SMC_SL_DISTANCE
-)
+SL_DISTANCE = SMC_SL_DISTANCE
 
 
-TP1_DISTANCE = (
-    SMC_TP1_DISTANCE
-)
+TP1_DISTANCE = SMC_TP1_DISTANCE
 
 
-TP2_DISTANCE = (
-    SMC_TP2_DISTANCE
-)
+TP2_DISTANCE = SMC_TP2_DISTANCE
 
 
-SL_PIPS = (
-    SMC_SL_PIPS
-)
+SL_PIPS = SMC_SL_PIPS
 
 
-TP1_PIPS = (
-    SMC_TP1_PIPS
-)
+TP1_PIPS = SMC_TP1_PIPS
 
 
-TP2_PIPS = (
-    SMC_TP2_PIPS
-)
+TP2_PIPS = SMC_TP2_PIPS
 
 
 # =========================================================
-# ENTRY
-# =========================================================
-#
-# Tolerance untuk menentukan apakah harga sudah cukup
-# dekat dengan zona untuk mempertimbangkan market entry.
-#
-# 0.3 price = 3 pips.
+# ENTRY TOLERANCE
 # =========================================================
 
 SMC_MARKET_ENTRY_TOLERANCE = _float_env(
@@ -474,39 +412,13 @@ MARKET_ENTRY_TOLERANCE = (
 # MAX ZONE DISTANCE
 # =========================================================
 #
-# PENTING:
-#
-# Sebelumnya bot menggunakan:
-#
-#     7.5 USD
-#
-# Sekarang TIDAK menggunakan USD sebagai konfigurasi.
-#
-# Bot menggunakan PIPS.
-#
 # Default:
 #
-#     100 pips
+# 100 pips
 #
-# Dengan:
+# XAU:
 #
-#     1 pip = 0.1 price
-#
-# Maka:
-#
-#     100 pips = 10.0 price
-#
-#
-# Contoh:
-#
-# Harga sekarang = 4622
-#
-# Radius 100 pips:
-#
-# 4612 ---------------- 4632
-#
-# Zona SMC yang berada di luar radius tersebut
-# tidak digunakan.
+# 100 × 0.1 = 10.0 price
 # =========================================================
 
 SMC_MAX_ZONE_DISTANCE_PIPS = _float_env(
@@ -515,19 +427,15 @@ SMC_MAX_ZONE_DISTANCE_PIPS = _float_env(
 )
 
 
-# ---------------------------------------------------------
-# Konversi PIPS -> PRICE
-# ---------------------------------------------------------
-
 SMC_MAX_ZONE_DISTANCE = (
     SMC_MAX_ZONE_DISTANCE_PIPS
     * SMC_PIP_VALUE
 )
 
 
-# ---------------------------------------------------------
+# =========================================================
 # BACKWARD COMPATIBILITY
-# ---------------------------------------------------------
+# =========================================================
 
 MAX_ZONE_DISTANCE = (
     SMC_MAX_ZONE_DISTANCE
@@ -540,11 +448,7 @@ MAX_ZONE_DISTANCE_PIPS = (
 
 
 # =========================================================
-# ZONE TOUCH
-# =========================================================
-#
-# Digunakan untuk melihat apakah zona pernah disentuh
-# atau dimitigasi oleh harga sebelumnya.
+# ZONE VALIDATION
 # =========================================================
 
 SMC_ZONE_TOUCH_LOOKBACK = _int_env(
@@ -553,39 +457,32 @@ SMC_ZONE_TOUCH_LOOKBACK = _int_env(
 )
 
 
-# =========================================================
-# MIN ENTRY CANDLES
-# =========================================================
-#
-# Minimum candle yang dibutuhkan untuk validasi entry.
-# =========================================================
-
 SMC_MIN_ENTRY_CANDLES = _int_env(
     "SMC_MIN_ENTRY_CANDLES",
     10
 )
 
 
+SMC_REQUIRE_VALID_ZONE = _bool_env(
+    "SMC_REQUIRE_VALID_ZONE",
+    True
+)
+
+
+SMC_PREFER_FRESH_ZONE = _bool_env(
+    "SMC_PREFER_FRESH_ZONE",
+    True
+)
+
+
+SMC_ALLOW_MITIGATED_ZONE = _bool_env(
+    "SMC_ALLOW_MITIGATED_ZONE",
+    True
+)
+
+
 # =========================================================
 # PENDING ORDER
-# =========================================================
-#
-# Pending order hanya valid selama 20 menit.
-#
-# Contoh:
-#
-# BUY LIMIT 4615
-#
-# Jika dalam 20 menit:
-#
-# harga tidak menyentuh 4615
-#
-# maka:
-#
-# SIGNAL EXPIRED
-# SKIP SIGNAL
-#
-# Tidak boleh entry ulang dari signal lama.
 # =========================================================
 
 SMC_PENDING_TIMEOUT_MINUTES = _int_env(
@@ -599,39 +496,25 @@ PENDING_ORDER_TIMEOUT_MINUTES = (
 )
 
 
-# =========================================================
-# PENDING ORDER ENABLE
-# =========================================================
-
-SMC_ENABLE_PENDING_ORDER = (
-    _env(
-        "SMC_ENABLE_PENDING_ORDER",
-        "true"
-    ).lower()
-    in (
-        "1",
-        "true",
-        "yes",
-        "on",
-    )
+SMC_ENABLE_PENDING_ORDER = _bool_env(
+    "SMC_ENABLE_PENDING_ORDER",
+    True
 )
 
 
 # =========================================================
-# MARKET ENTRY ENABLE
+# MARKET ENTRY
 # =========================================================
 
-SMC_ENABLE_MARKET_ENTRY = (
-    _env(
-        "SMC_ENABLE_MARKET_ENTRY",
-        "true"
-    ).lower()
-    in (
-        "1",
-        "true",
-        "yes",
-        "on",
-    )
+SMC_ENABLE_MARKET_ENTRY = _bool_env(
+    "SMC_ENABLE_MARKET_ENTRY",
+    True
+)
+
+
+SMC_REQUIRE_M1_CONFIRMATION_FOR_MARKET = _bool_env(
+    "SMC_REQUIRE_M1_CONFIRMATION_FOR_MARKET",
+    True
 )
 
 
@@ -646,7 +529,7 @@ TIMEZONE = _env(
 
 
 # =========================================================
-# GOOGLE SHEET
+# GOOGLE SHEETS
 # =========================================================
 
 SPREADSHEET_ID = _env(
@@ -720,400 +603,6 @@ SIGNAL_NAME = _env(
 
 
 # =========================================================
-# NEWS / FUNDAMENTAL
-# =========================================================
-#
-# Sistem berita XAUUSD
-#
-# FUNDAMENTAL:
-#   1 berita terbaru setiap 60 menit.
-#
-# COMBINATION:
-#   1 berita terbaru setiap 90 menit.
-#
-# Berita:
-#   - harus terbaru
-#   - relevan dengan XAUUSD / Gold
-#   - memiliki sumber asli
-#   - memiliki URL artikel asli
-#   - diterjemahkan ke Bahasa Indonesia
-#
-# =========================================================
-
-
-# =========================================================
-# NEWS API
-# =========================================================
-
-NEWS_API_KEY = _env(
-    "NEWS_API_KEY",
-    ""
-)
-
-
-NEWS_API_URL = _env(
-    "NEWS_API_URL",
-    ""
-)
-
-
-# =========================================================
-# NEWS LANGUAGE
-# =========================================================
-
-NEWS_SOURCE_LANGUAGE = _env(
-    "NEWS_SOURCE_LANGUAGE",
-    "en"
-)
-
-
-NEWS_OUTPUT_LANGUAGE = _env(
-    "NEWS_OUTPUT_LANGUAGE",
-    "id"
-)
-
-
-# =========================================================
-# FUNDAMENTAL NEWS
-# =========================================================
-#
-# 1 berita terbaru
-# setiap 60 menit.
-#
-# =========================================================
-
-FUNDAMENTAL_NEWS_ENABLED = (
-    _env(
-        "FUNDAMENTAL_NEWS_ENABLED",
-        "true"
-    ).lower()
-    in (
-        "1",
-        "true",
-        "yes",
-        "on",
-    )
-)
-
-
-FUNDAMENTAL_NEWS_INTERVAL_MINUTES = _int_env(
-    "FUNDAMENTAL_NEWS_INTERVAL_MINUTES",
-    60
-)
-
-
-# =========================================================
-# COMBINATION NEWS
-# =========================================================
-#
-# 1 berita terbaru
-# +
-# analisa SMC
-#
-# setiap 90 menit.
-#
-# =========================================================
-
-COMBINATION_NEWS_ENABLED = (
-    _env(
-        "COMBINATION_NEWS_ENABLED",
-        "true"
-    ).lower()
-    in (
-        "1",
-        "true",
-        "yes",
-        "on",
-    )
-)
-
-
-COMBINATION_NEWS_INTERVAL_MINUTES = _int_env(
-    "COMBINATION_NEWS_INTERVAL_MINUTES",
-    90
-)
-
-
-# =========================================================
-# NEWS AGE
-# =========================================================
-#
-# Berita yang terlalu lama tidak digunakan sebagai
-# "berita terbaru".
-#
-# Default:
-# 180 menit = 3 jam.
-#
-# =========================================================
-
-NEWS_MAX_AGE_MINUTES = _int_env(
-    "NEWS_MAX_AGE_MINUTES",
-    180
-)
-
-
-# =========================================================
-# NEWS FETCH
-# =========================================================
-#
-# Ambil beberapa kandidat berita terlebih dahulu,
-# kemudian news_service memilih 1 berita terbaik.
-#
-# =========================================================
-
-NEWS_FETCH_LIMIT = _int_env(
-    "NEWS_FETCH_LIMIT",
-    10
-)
-
-
-# =========================================================
-# XAUUSD NEWS KEYWORDS
-# =========================================================
-#
-# Tidak hanya mencari berita dengan kata "Gold".
-#
-# Berita berikut juga dapat mempengaruhi XAUUSD:
-#
-# - Federal Reserve
-# - suku bunga
-# - inflasi
-# - CPI
-# - PCE
-# - NFP
-# - USD
-# - Treasury Yield
-# - geopolitik
-#
-# =========================================================
-
-NEWS_KEYWORDS = [
-
-    "gold",
-
-    "XAUUSD",
-
-    "XAU",
-
-    "Federal Reserve",
-
-    "Fed",
-
-    "interest rate",
-
-    "inflation",
-
-    "CPI",
-
-    "PCE",
-
-    "NFP",
-
-    "nonfarm payrolls",
-
-    "unemployment",
-
-    "USD",
-
-    "US dollar",
-
-    "Treasury yields",
-
-    "bond yields",
-
-    "geopolitical",
-
-    "war",
-
-    "Middle East",
-
-]
-
-
-# =========================================================
-# SOURCE VALIDATION
-# =========================================================
-#
-# Berita wajib mempunyai:
-#
-# - nama publisher
-# - judul
-# - waktu publikasi
-# - URL artikel asli
-#
-# =========================================================
-
-NEWS_REQUIRE_SOURCE = (
-    _env(
-        "NEWS_REQUIRE_SOURCE",
-        "true"
-    ).lower()
-    in (
-        "1",
-        "true",
-        "yes",
-        "on",
-    )
-)
-
-
-NEWS_REQUIRE_URL = (
-    _env(
-        "NEWS_REQUIRE_URL",
-        "true"
-    ).lower()
-    in (
-        "1",
-        "true",
-        "yes",
-        "on",
-    )
-)
-
-
-# =========================================================
-# DUPLICATE PROTECTION
-# =========================================================
-#
-# Berita yang sama tidak dikirim berulang kali.
-#
-# =========================================================
-
-NEWS_PREVENT_DUPLICATE = (
-    _env(
-        "NEWS_PREVENT_DUPLICATE",
-        "true"
-    ).lower()
-    in (
-        "1",
-        "true",
-        "yes",
-        "on",
-    )
-)
-
-
-# =========================================================
-# TRANSLATION
-# =========================================================
-#
-# Sumber berita:
-# English
-#
-# Telegram:
-# Bahasa Indonesia
-#
-# =========================================================
-
-NEWS_TRANSLATE_TO_INDONESIAN = (
-    _env(
-        "NEWS_TRANSLATE_TO_INDONESIAN",
-        "true"
-    ).lower()
-    in (
-        "1",
-        "true",
-        "yes",
-        "on",
-    )
-)
-
-
-# =========================================================
-# SUMMARY
-# =========================================================
-
-NEWS_ENABLE_SUMMARY = (
-    _env(
-        "NEWS_ENABLE_SUMMARY",
-        "true"
-    ).lower()
-    in (
-        "1",
-        "true",
-        "yes",
-        "on",
-    )
-)
-
-
-# =========================================================
-# GOLD IMPACT
-# =========================================================
-#
-# Analisa:
-#
-# 🟢 Bullish Gold
-# 🔴 Bearish Gold
-# 🟡 Neutral / Mixed
-#
-# =========================================================
-
-NEWS_ENABLE_GOLD_IMPACT = (
-    _env(
-        "NEWS_ENABLE_GOLD_IMPACT",
-        "true"
-    ).lower()
-    in (
-        "1",
-        "true",
-        "yes",
-        "on",
-    )
-)
-
-
-# =========================================================
-# COMBINATION ANALYSIS
-# =========================================================
-#
-# Fundamental
-# +
-# SMC
-#
-# =========================================================
-
-NEWS_ENABLE_COMBINATION = (
-    _env(
-        "NEWS_ENABLE_COMBINATION",
-        "true"
-    ).lower()
-    in (
-        "1",
-        "true",
-        "yes",
-        "on",
-    )
-)
-
-
-# =========================================================
-# NEWS CHANNEL
-# =========================================================
-#
-# Jika 0:
-# berita dikirim menggunakan daftar member aktif.
-#
-# Jika diisi:
-# berita dapat dikirim ke channel tertentu.
-#
-# Contoh:
-#
-# NEWS_CHANNEL_ID=-1001234567890
-#
-# =========================================================
-
-NEWS_CHANNEL_ID = _int_env(
-    "NEWS_CHANNEL_ID",
-    0
-)
-
-
-# =========================================================
-# SESSION
-# =========================================================
-
-# =========================================================
 # SESSION
 # =========================================================
 
@@ -1140,7 +629,6 @@ SESSIONS = [
         ),
     },
 
-
     # =====================================================
     # LONDON
     # =====================================================
@@ -1162,7 +650,6 @@ SESSIONS = [
         ),
     },
 
-
     # =====================================================
     # NEW YORK
     # =====================================================
@@ -1180,7 +667,7 @@ SESSIONS = [
             + [
                 0,
                 1,
-                2
+                2,
             ]
         ),
 
@@ -1277,127 +764,11 @@ MAX_SIGNAL_HISTORY = _int_env(
 )
 
 
-# =========================================================
-# SIGNAL LIMIT
-# =========================================================
-
 MAX_SIGNAL_PER_DAY = _int_env(
     "MAX_SIGNAL_PER_DAY",
     20
 )
 
-
-# =========================================================
-# SMC VALIDATION
-# =========================================================
-#
-# Sistem tidak boleh membuat alasan / signal berdasarkan
-# kondisi yang tidak benar-benar terdeteksi.
-# =========================================================
-
-SMC_REQUIRE_VALID_ZONE = (
-    _env(
-        "SMC_REQUIRE_VALID_ZONE",
-        "true"
-    ).lower()
-    in (
-        "1",
-        "true",
-        "yes",
-        "on",
-    )
-)
-
-
-# =========================================================
-# REQUIRE M1 CONFIRMATION
-# =========================================================
-#
-# Jika menggunakan MARKET ENTRY:
-#
-# M1 confirmation wajib.
-#
-# Jika belum ada confirmation:
-# gunakan pending apabila zona valid.
-# =========================================================
-
-SMC_REQUIRE_M1_CONFIRMATION_FOR_MARKET = (
-    _env(
-        "SMC_REQUIRE_M1_CONFIRMATION_FOR_MARKET",
-        "true"
-    ).lower()
-    in (
-        "1",
-        "true",
-        "yes",
-        "on",
-    )
-)
-
-
-# =========================================================
-# FRESH ZONE PREFERENCE
-# =========================================================
-#
-# Zona untouched / fresh lebih diprioritaskan daripada
-# zona yang sudah terlalu banyak dimitigasi.
-# =========================================================
-
-SMC_PREFER_FRESH_ZONE = (
-    _env(
-        "SMC_PREFER_FRESH_ZONE",
-        "true"
-    ).lower()
-    in (
-        "1",
-        "true",
-        "yes",
-        "on",
-    )
-)
-
-
-# =========================================================
-# ALLOW MITIGATED ZONE
-# =========================================================
-#
-# False:
-# zona yang sudah terlalu termitigasi tidak digunakan.
-#
-# True:
-# masih dapat digunakan apabila validasi lain terpenuhi.
-# =========================================================
-
-SMC_ALLOW_MITIGATED_ZONE = (
-    _env(
-        "SMC_ALLOW_MITIGATED_ZONE",
-        "true"
-    ).lower()
-    in (
-        "1",
-        "true",
-        "yes",
-        "on",
-    )
-)
-
-
-# =========================================================
-# DEBUG
-# =========================================================
-
-DEBUG_SMC = (
-    _env(
-        "DEBUG_SMC",
-        "false"
-    ).lower()
-    in (
-        "1",
-        "true",
-        "yes",
-        "on",
-    )
-)
 
 # =========================================================
 # PERFORMANCE CHANNEL
@@ -1408,36 +779,16 @@ PERFORMANCE_CHANNEL_ID = _int_env(
     0
 )
 
+
+# =========================================================
 # =========================================================
 # FUNDAMENTAL NEWS
 # =========================================================
-#
-# Fundamental hanya untuk:
-#
-# 6 Bulan
-# 12 Bulan
-# Lifetime
-#
-# Tidak untuk:
-#
-# 1 Bulan
-# MITRA HFM
-#
-# Interval:
-# 60 menit
 # =========================================================
 
-FUNDAMENTAL_ENABLED = (
-    _env(
-        "FUNDAMENTAL_ENABLED",
-        "true"
-    ).lower()
-    in (
-        "1",
-        "true",
-        "yes",
-        "on",
-    )
+FUNDAMENTAL_ENABLED = _bool_env(
+    "FUNDAMENTAL_ENABLED",
+    True
 )
 
 
@@ -1447,31 +798,11 @@ FUNDAMENTAL_INTERVAL_MINUTES = _int_env(
 )
 
 
-# =========================================================
-# FUNDAMENTAL NEWS LIMIT
-# =========================================================
-#
-# Setiap update hanya boleh mengirim:
-#
-# 1 berita.
-#
-# =========================================================
-
 FUNDAMENTAL_NEWS_PER_UPDATE = _int_env(
     "FUNDAMENTAL_NEWS_PER_UPDATE",
     1
 )
 
-
-# =========================================================
-# FUNDAMENTAL NEWS AGE
-# =========================================================
-#
-# Maksimum umur berita yang boleh digunakan.
-#
-# Prioritas:
-# berita terbaru.
-# =========================================================
 
 FUNDAMENTAL_MAX_NEWS_AGE_HOURS = _int_env(
     "FUNDAMENTAL_MAX_NEWS_AGE_HOURS",
@@ -1480,50 +811,118 @@ FUNDAMENTAL_MAX_NEWS_AGE_HOURS = _int_env(
 
 
 # =========================================================
-# FUNDAMENTAL BLOCKED NEWS
-# =========================================================
-#
-# Berita berikut TIDAK digunakan:
-#
-# FOMC
-# NFP
-# PPI
-# CPI
-#
-# Filter akan dilakukan berdasarkan judul + isi berita.
+# FUNDAMENTAL API
 # =========================================================
 
-FUNDAMENTAL_BLOCKED_KEYWORDS = [
+NEWS_API_KEY = _env(
+    "NEWS_API_KEY",
+    ""
+)
 
-    "FOMC",
 
-    "Federal Open Market Committee",
+NEWS_API_URL = _env(
+    "NEWS_API_URL",
+    ""
+)
 
-    "NFP",
 
-    "Non-Farm Payroll",
+NEWS_REQUEST_TIMEOUT = _int_env(
+    "NEWS_REQUEST_TIMEOUT",
+    15
+)
 
-    "Nonfarm Payroll",
 
-    "Payrolls",
+# =========================================================
+# NEWS LANGUAGE
+# =========================================================
 
-    "PPI",
+NEWS_SOURCE_LANGUAGE = _env(
+    "NEWS_SOURCE_LANGUAGE",
+    "en"
+)
 
-    "Producer Price Index",
+
+NEWS_OUTPUT_LANGUAGE = _env(
+    "NEWS_OUTPUT_LANGUAGE",
+    "id"
+)
+
+
+FUNDAMENTAL_LANGUAGE = _env(
+    "FUNDAMENTAL_LANGUAGE",
+    "id"
+)
+
+
+# =========================================================
+# NEWS AGE
+# =========================================================
+
+NEWS_MAX_AGE_MINUTES = _int_env(
+    "NEWS_MAX_AGE_MINUTES",
+    180
+)
+
+
+# =========================================================
+# NEWS FETCH
+# =========================================================
+
+NEWS_FETCH_LIMIT = _int_env(
+    "NEWS_FETCH_LIMIT",
+    10
+)
+
+
+# =========================================================
+# NEWS KEYWORDS
+# =========================================================
+
+NEWS_KEYWORDS = [
+
+    "gold",
+
+    "XAUUSD",
+
+    "XAU",
+
+    "Federal Reserve",
+
+    "Fed",
+
+    "interest rate",
+
+    "inflation",
 
     "CPI",
 
-    "Consumer Price Index",
+    "PCE",
+
+    "NFP",
+
+    "nonfarm payrolls",
+
+    "unemployment",
+
+    "USD",
+
+    "US dollar",
+
+    "Treasury yields",
+
+    "bond yields",
+
+    "geopolitical",
+
+    "war",
+
+    "Middle East",
 
 ]
 
 
 # =========================================================
 # FUNDAMENTAL SEARCH KEYWORDS
-# =========================================================
-#
-# Fokus berita yang mempunyai pengaruh terhadap emas.
-#
 # =========================================================
 
 FUNDAMENTAL_SEARCH_KEYWORDS = [
@@ -1562,14 +961,40 @@ FUNDAMENTAL_SEARCH_KEYWORDS = [
 
 
 # =========================================================
-# FUNDAMENTAL SOURCE PRIORITY
+# BLOCKED NEWS
 # =========================================================
 #
-# Prioritas sumber berita.
-#
-# Sistem akan berusaha mengambil sumber terpercaya
-# terlebih dahulu.
-#
+# Berita berikut tidak digunakan oleh modul
+# Fundamental khusus.
+# =========================================================
+
+FUNDAMENTAL_BLOCKED_KEYWORDS = [
+
+    "FOMC",
+
+    "Federal Open Market Committee",
+
+    "NFP",
+
+    "Non-Farm Payroll",
+
+    "Nonfarm Payroll",
+
+    "Payrolls",
+
+    "PPI",
+
+    "Producer Price Index",
+
+    "CPI",
+
+    "Consumer Price Index",
+
+]
+
+
+# =========================================================
+# SOURCE PRIORITY
 # =========================================================
 
 FUNDAMENTAL_SOURCE_PRIORITY = [
@@ -1592,47 +1017,118 @@ FUNDAMENTAL_SOURCE_PRIORITY = [
 
 
 # =========================================================
-# FUNDAMENTAL TRANSLATION
-# =========================================================
-#
-# Semua berita yang dikirim ke Telegram harus menggunakan
-# Bahasa Indonesia.
-#
+# SOURCE VALIDATION
 # =========================================================
 
-FUNDAMENTAL_LANGUAGE = _env(
-    "FUNDAMENTAL_LANGUAGE",
-    "id"
+NEWS_REQUIRE_SOURCE = _bool_env(
+    "NEWS_REQUIRE_SOURCE",
+    True
+)
+
+
+NEWS_REQUIRE_URL = _bool_env(
+    "NEWS_REQUIRE_URL",
+    True
 )
 
 
 # =========================================================
-# COMBINED AI
-# =========================================================
-#
-# Combined AI hanya untuk:
-#
-# 6 Bulan
-# 12 Bulan
-# Lifetime
-#
-# Interval:
-#
-# 90 menit.
-#
+# DUPLICATE PROTECTION
 # =========================================================
 
-COMBINED_AI_ENABLED = (
-    _env(
-        "COMBINED_AI_ENABLED",
-        "true"
-    ).lower()
-    in (
-        "1",
-        "true",
-        "yes",
-        "on",
-    )
+NEWS_PREVENT_DUPLICATE = _bool_env(
+    "NEWS_PREVENT_DUPLICATE",
+    True
+)
+
+
+# =========================================================
+# TRANSLATION
+# =========================================================
+
+NEWS_TRANSLATE_TO_INDONESIAN = _bool_env(
+    "NEWS_TRANSLATE_TO_INDONESIAN",
+    True
+)
+
+
+# =========================================================
+# SUMMARY
+# =========================================================
+
+NEWS_ENABLE_SUMMARY = _bool_env(
+    "NEWS_ENABLE_SUMMARY",
+    True
+)
+
+
+# =========================================================
+# GOLD IMPACT
+# =========================================================
+
+NEWS_ENABLE_GOLD_IMPACT = _bool_env(
+    "NEWS_ENABLE_GOLD_IMPACT",
+    True
+)
+
+
+# =========================================================
+# COMBINATION
+# =========================================================
+
+NEWS_ENABLE_COMBINATION = _bool_env(
+    "NEWS_ENABLE_COMBINATION",
+    True
+)
+
+
+# =========================================================
+# NEWS CHANNEL
+# =========================================================
+
+NEWS_CHANNEL_ID = _int_env(
+    "NEWS_CHANNEL_ID",
+    0
+)
+
+
+# =========================================================
+# NEWS FAILURE POLICY
+# =========================================================
+#
+# Jika news provider gagal:
+#
+# SMC signal utama tidak ikut gagal.
+#
+# Combined AI tetap tunduk pada:
+# COMBINED_REQUIRE_FUNDAMENTAL
+# =========================================================
+
+NEWS_FAIL_SILENT = _bool_env(
+    "NEWS_FAIL_SILENT",
+    True
+)
+
+
+# =========================================================
+# FUNDAMENTAL CACHE
+# =========================================================
+
+FUNDAMENTAL_NEWS_CACHE_FILE = _env(
+    "FUNDAMENTAL_NEWS_CACHE_FILE",
+    "data/fundamental_news.json"
+)
+
+
+# =========================================================
+# =========================================================
+# COMBINED AI
+# =========================================================
+# =========================================================
+
+COMBINED_AI_ENABLED = _bool_env(
+    "COMBINED_AI_ENABLED",
+    True
 )
 
 
@@ -1642,25 +1138,11 @@ COMBINED_AI_INTERVAL_MINUTES = _int_env(
 )
 
 
-# =========================================================
-# COMBINED NEWS LIMIT
-# =========================================================
-#
-# Setiap proses Combined AI hanya menggunakan:
-#
-# 1 berita.
-#
-# =========================================================
-
 COMBINED_NEWS_PER_UPDATE = _int_env(
     "COMBINED_NEWS_PER_UPDATE",
     1
 )
 
-
-# =========================================================
-# COMBINED NEWS AGE
-# =========================================================
 
 COMBINED_MAX_NEWS_AGE_HOURS = _int_env(
     "COMBINED_MAX_NEWS_AGE_HOURS",
@@ -1671,109 +1153,48 @@ COMBINED_MAX_NEWS_AGE_HOURS = _int_env(
 # =========================================================
 # COMBINED REQUIRE SMC
 # =========================================================
-#
-# Combined AI WAJIB mempunyai data teknikal/SMC.
-#
-# Jika SMC tidak valid:
-#
-# NO TRADE
-#
-# Jangan memaksakan Entry / TP / SL.
-# =========================================================
 
-COMBINED_REQUIRE_SMC = (
-    _env(
-        "COMBINED_REQUIRE_SMC",
-        "true"
-    ).lower()
-    in (
-        "1",
-        "true",
-        "yes",
-        "on",
-    )
+COMBINED_REQUIRE_SMC = _bool_env(
+    "COMBINED_REQUIRE_SMC",
+    True
 )
 
 
 # =========================================================
 # COMBINED REQUIRE FUNDAMENTAL
 # =========================================================
-#
-# Combined AI WAJIB mempunyai berita fundamental
-# yang valid.
-#
-# =========================================================
 
-COMBINED_REQUIRE_FUNDAMENTAL = (
-    _env(
-        "COMBINED_REQUIRE_FUNDAMENTAL",
-        "true"
-    ).lower()
-    in (
-        "1",
-        "true",
-        "yes",
-        "on",
-    )
+COMBINED_REQUIRE_FUNDAMENTAL = _bool_env(
+    "COMBINED_REQUIRE_FUNDAMENTAL",
+    True
 )
 
 
 # =========================================================
-# COMBINED RISK MANAGEMENT
-# =========================================================
-#
-# Combined menggunakan risk management SMC yang sudah ada.
-#
-# SL  = 50 pips
-# TP1 = 70 pips
-# TP2 = 150 pips
-#
-# Tidak membuat risk management baru.
+# COMBINED RISK
 # =========================================================
 
-COMBINED_SL_PIPS = (
-    SMC_SL_PIPS
-)
+COMBINED_SL_PIPS = SMC_SL_PIPS
 
 
-COMBINED_TP1_PIPS = (
-    SMC_TP1_PIPS
-)
+COMBINED_TP1_PIPS = SMC_TP1_PIPS
 
 
-COMBINED_TP2_PIPS = (
-    SMC_TP2_PIPS
-)
+COMBINED_TP2_PIPS = SMC_TP2_PIPS
 
 
-COMBINED_SL_DISTANCE = (
-    SMC_SL_DISTANCE
-)
+COMBINED_SL_DISTANCE = SMC_SL_DISTANCE
 
 
-COMBINED_TP1_DISTANCE = (
-    SMC_TP1_DISTANCE
-)
+COMBINED_TP1_DISTANCE = SMC_TP1_DISTANCE
 
 
-COMBINED_TP2_DISTANCE = (
-    SMC_TP2_DISTANCE
-)
+COMBINED_TP2_DISTANCE = SMC_TP2_DISTANCE
 
 
 # =========================================================
-# NEWS CACHE
+# COMBINED CACHE
 # =========================================================
-#
-# Mencegah berita yang sama dikirim berulang kali.
-#
-# =========================================================
-
-FUNDAMENTAL_NEWS_CACHE_FILE = _env(
-    "FUNDAMENTAL_NEWS_CACHE_FILE",
-    "data/fundamental_news.json"
-)
-
 
 COMBINED_NEWS_CACHE_FILE = _env(
     "COMBINED_NEWS_CACHE_FILE",
@@ -1782,13 +1203,253 @@ COMBINED_NEWS_CACHE_FILE = _env(
 
 
 # =========================================================
-# NEWS REQUEST
 # =========================================================
-#
-# Timeout request ke news provider.
+# AI
+# =========================================================
 # =========================================================
 
-NEWS_REQUEST_TIMEOUT = _int_env(
-    "NEWS_REQUEST_TIMEOUT",
-    15
+AI_ENABLED = _bool_env(
+    "AI_ENABLED",
+    True
 )
+
+
+AI_API_KEY = _env(
+    "AI_API_KEY",
+    ""
+)
+
+
+AI_MODEL = _env(
+    "AI_MODEL",
+    ""
+)
+
+
+AI_TIMEOUT = _int_env(
+    "AI_TIMEOUT",
+    30
+)
+
+
+# =========================================================
+# DEBUG
+# =========================================================
+
+DEBUG_SMC = _bool_env(
+    "DEBUG_SMC",
+    False
+)
+
+
+DEBUG_NEWS = _bool_env(
+    "DEBUG_NEWS",
+    False
+)
+
+
+DEBUG_COMBINED = _bool_env(
+    "DEBUG_COMBINED",
+    False
+)
+
+
+# =========================================================
+# SETTINGS VALIDATION
+# =========================================================
+
+def validate_settings():
+
+    errors = []
+
+
+    # =====================================================
+    # REQUIRED CREDENTIALS
+    # =====================================================
+
+    if not BOT_TOKEN:
+
+        errors.append(
+            "BOT_TOKEN belum diisi."
+        )
+
+
+    if not TWELVE_TOKEN:
+
+        errors.append(
+            "TWELVE_TOKEN belum diisi."
+        )
+
+
+    if not SPREADSHEET_ID:
+
+        errors.append(
+            "SPREADSHEET_ID belum diisi."
+        )
+
+
+    # =====================================================
+    # RISK
+    # =====================================================
+
+    if SMC_PIP_VALUE <= 0:
+
+        errors.append(
+            "SMC_PIP_VALUE harus lebih besar dari 0."
+        )
+
+
+    if SMC_SL_PIPS <= 0:
+
+        errors.append(
+            "SMC_SL_PIPS harus lebih besar dari 0."
+        )
+
+
+    if SMC_TP1_PIPS <= 0:
+
+        errors.append(
+            "SMC_TP1_PIPS harus lebih besar dari 0."
+        )
+
+
+    if SMC_TP2_PIPS <= 0:
+
+        errors.append(
+            "SMC_TP2_PIPS harus lebih besar dari 0."
+        )
+
+
+    # =====================================================
+    # ZONE
+    # =====================================================
+
+    if SMC_MAX_ZONE_DISTANCE_PIPS <= 0:
+
+        errors.append(
+            "SMC_MAX_ZONE_DISTANCE_PIPS harus "
+            "lebih besar dari 0."
+        )
+
+
+    # =====================================================
+    # PENDING
+    # =====================================================
+
+    if SMC_PENDING_TIMEOUT_MINUTES <= 0:
+
+        errors.append(
+            "SMC_PENDING_TIMEOUT_MINUTES harus "
+            "lebih besar dari 0."
+        )
+
+
+    # =====================================================
+    # CANDLES
+    # =====================================================
+
+    if SMC_CANDLES_FOR_STRUCTURE < 3:
+
+        errors.append(
+            "SMC_CANDLES_FOR_STRUCTURE minimal 3."
+        )
+
+
+    if SMC_CANDLES_ENTRY_LOOKBACK < 1:
+
+        errors.append(
+            "SMC_CANDLES_ENTRY_LOOKBACK minimal 1."
+        )
+
+
+    # =====================================================
+    # SEND
+    # =====================================================
+
+    if SIGNAL_SEND_DELAY < 0:
+
+        errors.append(
+            "SIGNAL_SEND_DELAY tidak boleh negatif."
+        )
+
+
+    if TELEGRAM_RETRY_COUNT < 0:
+
+        errors.append(
+            "TELEGRAM_RETRY_COUNT tidak boleh negatif."
+        )
+
+
+    if TELEGRAM_RETRY_DELAY < 0:
+
+        errors.append(
+            "TELEGRAM_RETRY_DELAY tidak boleh negatif."
+        )
+
+
+    # =====================================================
+    # NEWS
+    # =====================================================
+
+    if FUNDAMENTAL_INTERVAL_MINUTES <= 0:
+
+        errors.append(
+            "FUNDAMENTAL_INTERVAL_MINUTES harus "
+            "lebih besar dari 0."
+        )
+
+
+    if COMBINED_AI_INTERVAL_MINUTES <= 0:
+
+        errors.append(
+            "COMBINED_AI_INTERVAL_MINUTES harus "
+            "lebih besar dari 0."
+        )
+
+
+    if NEWS_REQUEST_TIMEOUT <= 0:
+
+        errors.append(
+            "NEWS_REQUEST_TIMEOUT harus "
+            "lebih besar dari 0."
+        )
+
+
+    # =====================================================
+    # NEWS LIMIT
+    # =====================================================
+
+    if NEWS_FETCH_LIMIT < 1:
+
+        errors.append(
+            "NEWS_FETCH_LIMIT minimal 1."
+        )
+
+
+    if FUNDAMENTAL_NEWS_PER_UPDATE < 1:
+
+        errors.append(
+            "FUNDAMENTAL_NEWS_PER_UPDATE minimal 1."
+        )
+
+
+    if COMBINED_NEWS_PER_UPDATE < 1:
+
+        errors.append(
+            "COMBINED_NEWS_PER_UPDATE minimal 1."
+        )
+
+
+    # =====================================================
+    # ERROR
+    # =====================================================
+
+    if errors:
+
+        raise ValueError(
+            "Konfigurasi settings tidak valid:\n- "
+            + "\n- ".join(errors)
+        )
+
+
+    return True
