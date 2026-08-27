@@ -720,6 +720,400 @@ SIGNAL_NAME = _env(
 
 
 # =========================================================
+# NEWS / FUNDAMENTAL
+# =========================================================
+#
+# Sistem berita XAUUSD
+#
+# FUNDAMENTAL:
+#   1 berita terbaru setiap 60 menit.
+#
+# COMBINATION:
+#   1 berita terbaru setiap 90 menit.
+#
+# Berita:
+#   - harus terbaru
+#   - relevan dengan XAUUSD / Gold
+#   - memiliki sumber asli
+#   - memiliki URL artikel asli
+#   - diterjemahkan ke Bahasa Indonesia
+#
+# =========================================================
+
+
+# =========================================================
+# NEWS API
+# =========================================================
+
+NEWS_API_KEY = _env(
+    "NEWS_API_KEY",
+    ""
+)
+
+
+NEWS_API_URL = _env(
+    "NEWS_API_URL",
+    ""
+)
+
+
+# =========================================================
+# NEWS LANGUAGE
+# =========================================================
+
+NEWS_SOURCE_LANGUAGE = _env(
+    "NEWS_SOURCE_LANGUAGE",
+    "en"
+)
+
+
+NEWS_OUTPUT_LANGUAGE = _env(
+    "NEWS_OUTPUT_LANGUAGE",
+    "id"
+)
+
+
+# =========================================================
+# FUNDAMENTAL NEWS
+# =========================================================
+#
+# 1 berita terbaru
+# setiap 60 menit.
+#
+# =========================================================
+
+FUNDAMENTAL_NEWS_ENABLED = (
+    _env(
+        "FUNDAMENTAL_NEWS_ENABLED",
+        "true"
+    ).lower()
+    in (
+        "1",
+        "true",
+        "yes",
+        "on",
+    )
+)
+
+
+FUNDAMENTAL_NEWS_INTERVAL_MINUTES = _int_env(
+    "FUNDAMENTAL_NEWS_INTERVAL_MINUTES",
+    60
+)
+
+
+# =========================================================
+# COMBINATION NEWS
+# =========================================================
+#
+# 1 berita terbaru
+# +
+# analisa SMC
+#
+# setiap 90 menit.
+#
+# =========================================================
+
+COMBINATION_NEWS_ENABLED = (
+    _env(
+        "COMBINATION_NEWS_ENABLED",
+        "true"
+    ).lower()
+    in (
+        "1",
+        "true",
+        "yes",
+        "on",
+    )
+)
+
+
+COMBINATION_NEWS_INTERVAL_MINUTES = _int_env(
+    "COMBINATION_NEWS_INTERVAL_MINUTES",
+    90
+)
+
+
+# =========================================================
+# NEWS AGE
+# =========================================================
+#
+# Berita yang terlalu lama tidak digunakan sebagai
+# "berita terbaru".
+#
+# Default:
+# 180 menit = 3 jam.
+#
+# =========================================================
+
+NEWS_MAX_AGE_MINUTES = _int_env(
+    "NEWS_MAX_AGE_MINUTES",
+    180
+)
+
+
+# =========================================================
+# NEWS FETCH
+# =========================================================
+#
+# Ambil beberapa kandidat berita terlebih dahulu,
+# kemudian news_service memilih 1 berita terbaik.
+#
+# =========================================================
+
+NEWS_FETCH_LIMIT = _int_env(
+    "NEWS_FETCH_LIMIT",
+    10
+)
+
+
+# =========================================================
+# XAUUSD NEWS KEYWORDS
+# =========================================================
+#
+# Tidak hanya mencari berita dengan kata "Gold".
+#
+# Berita berikut juga dapat mempengaruhi XAUUSD:
+#
+# - Federal Reserve
+# - suku bunga
+# - inflasi
+# - CPI
+# - PCE
+# - NFP
+# - USD
+# - Treasury Yield
+# - geopolitik
+#
+# =========================================================
+
+NEWS_KEYWORDS = [
+
+    "gold",
+
+    "XAUUSD",
+
+    "XAU",
+
+    "Federal Reserve",
+
+    "Fed",
+
+    "interest rate",
+
+    "inflation",
+
+    "CPI",
+
+    "PCE",
+
+    "NFP",
+
+    "nonfarm payrolls",
+
+    "unemployment",
+
+    "USD",
+
+    "US dollar",
+
+    "Treasury yields",
+
+    "bond yields",
+
+    "geopolitical",
+
+    "war",
+
+    "Middle East",
+
+]
+
+
+# =========================================================
+# SOURCE VALIDATION
+# =========================================================
+#
+# Berita wajib mempunyai:
+#
+# - nama publisher
+# - judul
+# - waktu publikasi
+# - URL artikel asli
+#
+# =========================================================
+
+NEWS_REQUIRE_SOURCE = (
+    _env(
+        "NEWS_REQUIRE_SOURCE",
+        "true"
+    ).lower()
+    in (
+        "1",
+        "true",
+        "yes",
+        "on",
+    )
+)
+
+
+NEWS_REQUIRE_URL = (
+    _env(
+        "NEWS_REQUIRE_URL",
+        "true"
+    ).lower()
+    in (
+        "1",
+        "true",
+        "yes",
+        "on",
+    )
+)
+
+
+# =========================================================
+# DUPLICATE PROTECTION
+# =========================================================
+#
+# Berita yang sama tidak dikirim berulang kali.
+#
+# =========================================================
+
+NEWS_PREVENT_DUPLICATE = (
+    _env(
+        "NEWS_PREVENT_DUPLICATE",
+        "true"
+    ).lower()
+    in (
+        "1",
+        "true",
+        "yes",
+        "on",
+    )
+)
+
+
+# =========================================================
+# TRANSLATION
+# =========================================================
+#
+# Sumber berita:
+# English
+#
+# Telegram:
+# Bahasa Indonesia
+#
+# =========================================================
+
+NEWS_TRANSLATE_TO_INDONESIAN = (
+    _env(
+        "NEWS_TRANSLATE_TO_INDONESIAN",
+        "true"
+    ).lower()
+    in (
+        "1",
+        "true",
+        "yes",
+        "on",
+    )
+)
+
+
+# =========================================================
+# SUMMARY
+# =========================================================
+
+NEWS_ENABLE_SUMMARY = (
+    _env(
+        "NEWS_ENABLE_SUMMARY",
+        "true"
+    ).lower()
+    in (
+        "1",
+        "true",
+        "yes",
+        "on",
+    )
+)
+
+
+# =========================================================
+# GOLD IMPACT
+# =========================================================
+#
+# Analisa:
+#
+# 🟢 Bullish Gold
+# 🔴 Bearish Gold
+# 🟡 Neutral / Mixed
+#
+# =========================================================
+
+NEWS_ENABLE_GOLD_IMPACT = (
+    _env(
+        "NEWS_ENABLE_GOLD_IMPACT",
+        "true"
+    ).lower()
+    in (
+        "1",
+        "true",
+        "yes",
+        "on",
+    )
+)
+
+
+# =========================================================
+# COMBINATION ANALYSIS
+# =========================================================
+#
+# Fundamental
+# +
+# SMC
+#
+# =========================================================
+
+NEWS_ENABLE_COMBINATION = (
+    _env(
+        "NEWS_ENABLE_COMBINATION",
+        "true"
+    ).lower()
+    in (
+        "1",
+        "true",
+        "yes",
+        "on",
+    )
+)
+
+
+# =========================================================
+# NEWS CHANNEL
+# =========================================================
+#
+# Jika 0:
+# berita dikirim menggunakan daftar member aktif.
+#
+# Jika diisi:
+# berita dapat dikirim ke channel tertentu.
+#
+# Contoh:
+#
+# NEWS_CHANNEL_ID=-1001234567890
+#
+# =========================================================
+
+NEWS_CHANNEL_ID = _int_env(
+    "NEWS_CHANNEL_ID",
+    0
+)
+
+
+# =========================================================
+# SESSION
+# =========================================================
+
+# =========================================================
 # SESSION
 # =========================================================
 
