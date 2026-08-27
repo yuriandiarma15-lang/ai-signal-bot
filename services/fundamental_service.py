@@ -1439,9 +1439,183 @@ def validate_news(
     news: Dict[str, Any],
 ) -> bool:
 
+    # =====================================================
+    # EMPTY
+    # =====================================================
+
     if not news:
 
+        logger.info(
+            "NEWS REJECTED | alasan=EMPTY"
+        )
+
         return False
+
+
+    title = normalize_text(
+        news.get(
+            "title"
+        )
+    )
+
+
+    # =====================================================
+    # TITLE
+    # =====================================================
+
+    if not title:
+
+        logger.info(
+            "NEWS REJECTED | "
+            "alasan=NO_TITLE"
+        )
+
+        return False
+
+
+    # =====================================================
+    # SOURCE
+    # =====================================================
+
+    if NEWS_REQUIRE_SOURCE:
+
+        source = normalize_text(
+            news.get(
+                "source"
+            )
+        )
+
+
+        if not source:
+
+            logger.info(
+                "NEWS REJECTED | "
+                "alasan=NO_SOURCE | "
+                "title=%s",
+                title,
+            )
+
+            return False
+
+
+    # =====================================================
+    # URL
+    # =====================================================
+
+    if NEWS_REQUIRE_URL:
+
+        url = normalize_text(
+            news.get(
+                "url"
+            )
+        )
+
+
+        if not is_valid_url(
+            url
+        ):
+
+            logger.info(
+                "NEWS REJECTED | "
+                "alasan=INVALID_URL | "
+                "title=%s | "
+                "url=%s",
+                title,
+                url,
+            )
+
+            return False
+
+
+    # =====================================================
+    # BLOCKED KEYWORD
+    # =====================================================
+
+    if contains_blocked_keyword(
+        news
+    ):
+
+        logger.info(
+            "NEWS REJECTED | "
+            "alasan=BLOCKED_KEYWORD | "
+            "title=%s",
+            title,
+        )
+
+        return False
+
+
+    # =====================================================
+    # RELEVANT KEYWORD
+    # =====================================================
+
+    if not contains_relevant_keyword(
+        news
+    ):
+
+        logger.info(
+            "NEWS REJECTED | "
+            "alasan=NOT_RELEVANT | "
+            "title=%s",
+            title,
+        )
+
+        return False
+
+
+    # =====================================================
+    # AGE
+    # =====================================================
+
+    age = news_age_minutes(
+        news
+    )
+
+
+    if is_news_too_old(
+        news
+    ):
+
+        logger.info(
+            "NEWS REJECTED | "
+            "alasan=TOO_OLD | "
+            "age=%s min | "
+            "title=%s",
+            (
+                f"{age:.1f}"
+                if age is not None
+                else "UNKNOWN"
+            ),
+            title,
+        )
+
+        return False
+
+
+    # =====================================================
+    # ACCEPTED
+    # =====================================================
+
+    logger.info(
+        "NEWS ACCEPTED | "
+        "title=%s | "
+        "source=%s | "
+        "age=%s min",
+        title,
+        normalize_text(
+            news.get(
+                "source"
+            )
+        ),
+        (
+            f"{age:.1f}"
+            if age is not None
+            else "UNKNOWN"
+        ),
+    )
+
+
+    return True
 
 
     # =====================================================
