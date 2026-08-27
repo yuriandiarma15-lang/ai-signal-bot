@@ -1,3 +1,23 @@
+"""
+main.py
+
+XAU AI SIGNAL BOT
+=================
+
+Fungsi:
+- Menjalankan Telegram Bot
+- Register semua handler
+- Telegram command menu
+- Menjalankan signal scheduler
+- Signal Telegram realtime
+- Website delay +1 jam
+
+TIDAK MENJALANKAN:
+- Entry monitor dari main.py
+- TP/SL monitor dari main.py
+- Performance monitor dari main.py
+"""
+
 import asyncio
 import logging
 
@@ -11,6 +31,7 @@ from handlers.menu import router as menu_router
 from handlers.signal import router as signal_router
 from handlers.admin import router as admin_router
 from handlers.materi import router as materi_router
+from handlers.fundamental import router as fundamental_router
 
 from services.scheduler import signal_scheduler
 
@@ -33,7 +54,7 @@ logger = logging.getLogger("main")
 
 
 # =========================================================
-# BOT
+# BOT TOKEN CHECK
 # =========================================================
 
 if not BOT_TOKEN:
@@ -43,6 +64,10 @@ if not BOT_TOKEN:
         "Periksa file .env"
     )
 
+
+# =========================================================
+# BOT
+# =========================================================
 
 bot = Bot(
     token=BOT_TOKEN
@@ -75,6 +100,10 @@ dp.include_router(
     materi_router
 )
 
+dp.include_router(
+    fundamental_router
+)
+
 
 # =========================================================
 # TELEGRAM COMMAND MENU
@@ -84,15 +113,45 @@ async def setup_bot_commands():
 
     await bot.set_my_commands(
         [
+            # -------------------------------------------------
+            # START
+            # -------------------------------------------------
+
             BotCommand(
                 command="start",
                 description="Mulai menggunakan bot",
             ),
 
+            # -------------------------------------------------
+            # MENU
+            # -------------------------------------------------
+
             BotCommand(
                 command="menu",
                 description="Buka menu utama",
             ),
+
+            # -------------------------------------------------
+            # SIGNAL
+            # -------------------------------------------------
+
+            BotCommand(
+                command="signal",
+                description="Generate signal XAUUSD",
+            ),
+
+            # -------------------------------------------------
+            # FUNDAMENTAL
+            # -------------------------------------------------
+
+            BotCommand(
+                command="fundamental",
+                description="Analisis fundamental Gold",
+            ),
+
+            # -------------------------------------------------
+            # MATERI
+            # -------------------------------------------------
 
             BotCommand(
                 command="materi",
@@ -142,15 +201,17 @@ async def main():
     # =====================================================
     # SIGNAL SCHEDULER
     #
-    # HANYA SIGNAL SCHEDULER
+    # Scheduler bertanggung jawab untuk:
     #
-    # Tidak menjalankan:
-    # - Entry monitor
-    # - Entry timeout 20 menit
-    # - TP1 monitor
-    # - TP2 monitor
-    # - SL monitor
-    # - Performance monitor
+    # - Auto signal
+    # - Telegram realtime
+    # - Monitor
+    # - Website delay
+    # - Performance sesuai scheduler
+    #
+    # Fundamental akan dipanggil dari
+    # signal_builder / combined service,
+    # bukan dari main.py.
     # =====================================================
 
     signal_task = asyncio.create_task(
@@ -218,6 +279,10 @@ async def main():
 
     logger.info(
         "📊 DETAIL ANALYSIS AVAILABLE"
+    )
+
+    logger.info(
+        "📰 FUNDAMENTAL NEWS COMMAND ACTIVE"
     )
 
     logger.info(
