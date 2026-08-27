@@ -1276,12 +1276,47 @@ def build_api_params() -> Dict[str, Any]:
     Jika NEWS_API_URL Anda menggunakan provider tertentu,
     parameter dapat disesuaikan kemudian tanpa menyentuh
     SMC.
+
+    FIX:
+    Keyword yang terdiri dari beberapa kata (mis. "US
+    dollar", "Treasury yields") sebelumnya dikirim apa
+    adanya ke query OR, sehingga NewsAPI mencocokkannya
+    sebagai kata terpisah (bukan frasa utuh) dan membuat
+    hasil pencarian kurang presisi / banyak noise.
+
+    Sekarang keyword multi-kata dibungkus tanda kutip
+    ("US dollar") supaya NewsAPI mencarinya sebagai
+    frasa utuh.
     """
 
+    raw_keywords = FUNDAMENTAL_SEARCH_KEYWORDS[
+        :10
+    ]
+
+    quoted_keywords = []
+
+    for keyword in raw_keywords:
+
+        keyword = keyword.strip()
+
+        if not keyword:
+
+            continue
+
+        if " " in keyword:
+
+            quoted_keywords.append(
+                f"\"{keyword}\""
+            )
+
+        else:
+
+            quoted_keywords.append(
+                keyword
+            )
+
     query = " OR ".join(
-        FUNDAMENTAL_SEARCH_KEYWORDS[
-            :10
-        ]
+        quoted_keywords
     )
 
 
@@ -1613,116 +1648,6 @@ def validate_news(
             else "UNKNOWN"
         ),
     )
-
-
-    return True
-
-
-    # =====================================================
-    # TITLE
-    # =====================================================
-
-    if not news.get(
-        "title"
-    ):
-
-        return False
-
-
-    # =====================================================
-    # SOURCE
-    # =====================================================
-
-    if NEWS_REQUIRE_SOURCE:
-
-        if not news.get(
-            "source"
-        ):
-
-            logger.debug(
-                "News ditolak: source kosong | %s",
-                news.get(
-                    "title"
-                ),
-            )
-
-            return False
-
-
-    # =====================================================
-    # URL
-    # =====================================================
-
-    if NEWS_REQUIRE_URL:
-
-        if not is_valid_url(
-            news.get(
-                "url"
-            )
-        ):
-
-            logger.debug(
-                "News ditolak: URL tidak valid | %s",
-                news.get(
-                    "title"
-                ),
-            )
-
-            return False
-
-
-    # =====================================================
-    # BLOCKED
-    # =====================================================
-
-    if contains_blocked_keyword(
-        news
-    ):
-
-        logger.info(
-            "News ditolak karena blocked keyword | %s",
-            news.get(
-                "title"
-            ),
-        )
-
-        return False
-
-
-    # =====================================================
-    # RELEVANT
-    # =====================================================
-
-    if not contains_relevant_keyword(
-        news
-    ):
-
-        logger.debug(
-            "News ditolak karena tidak relevan | %s",
-            news.get(
-                "title"
-            ),
-        )
-
-        return False
-
-
-    # =====================================================
-    # AGE
-    # =====================================================
-
-    if is_news_too_old(
-        news
-    ):
-
-        logger.debug(
-            "News ditolak karena terlalu lama | %s",
-            news.get(
-                "title"
-            ),
-        )
-
-        return False
 
 
     return True
