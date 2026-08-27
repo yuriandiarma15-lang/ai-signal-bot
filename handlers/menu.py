@@ -5,59 +5,62 @@ from aiogram.types import (
     CallbackQuery
 )
 
-
 from services.membership import check_member
-
 
 from keyboards.menu import member_menu
 
-
 from keyboards.buttons import renew_button
-
-
 
 
 router = Router()
 
 
-
-
-
-# ==========================
+# =========================================================
 # COMMAND /MENU
-# ==========================
-
+# =========================================================
 
 @router.message(
     F.text == "/menu"
 )
-
 async def menu(
     message: Message
 ):
 
-
     user_id = message.from_user.id
-
 
     member = check_member(
         user_id
     )
 
 
+    # =====================================================
+    # GOOGLE SHEET ERROR
+    # =====================================================
+
+    if member.get("error") == "spreadsheet_unavailable":
+
+        await message.answer(
+            """
+⚠️ <b>SISTEM MEMBERSHIP SEDANG TIDAK TERSEDIA</b>
+
+Google Sheets sedang mengalami
+gangguan sementara.
+
+Silakan coba kembali beberapa saat lagi.
+""",
+            parse_mode="HTML"
+        )
+
+        return
 
 
-
-    # ==========================
-    # EXPIRED
-    # ==========================
-
+    # =====================================================
+    # MEMBER TIDAK AKTIF
+    # =====================================================
 
     if not member["active"]:
 
-
         text = f"""
-
 🔒 <b>MEMBERSHIP SUDAH BERAKHIR</b>
 
 
@@ -95,8 +98,6 @@ Hubungi:
 
 
 🤖 <b>@Intradayxauusd_bot</b>
-
-
 """
 
 
@@ -110,22 +111,47 @@ Hubungi:
 
         )
 
-
         return
 
 
+    # =====================================================
+    # PACKAGE
+    # =====================================================
+
+    package = member.get(
+        "package",
+        "-"
+    )
 
 
+    expired = member.get(
+        "expired",
+        ""
+    )
 
 
+    # =====================================================
+    # LIFETIME DISPLAY
+    # =====================================================
 
-    # ==========================
-    # ACTIVE
-    # ==========================
+    if str(package).strip().lower() == "lifetime":
 
+        expired_display = "∞ LIFETIME"
+
+    elif expired:
+
+        expired_display = expired
+
+    else:
+
+        expired_display = "-"
+
+
+    # =====================================================
+    # ACTIVE MEMBER
+    # =====================================================
 
     text = f"""
-
 ⚙️ <b>MEMBER MENU</b>
 
 
@@ -148,12 +174,12 @@ ACTIVE
 
 📦 <b>Paket:</b>
 
-{member['package']}
+{package}
 
 
 📅 <b>Expired:</b>
 
-{member['expired']}
+{expired_display}
 
 
 ━━━━━━━━━━━━━━
@@ -163,8 +189,6 @@ Silakan pilih layanan Anda.
 
 
 🤖 <b>XAU AI ASSISTANT</b>
-
-
 """
 
 
@@ -172,53 +196,86 @@ Silakan pilih layanan Anda.
 
         text,
 
-        reply_markup=member_menu(),
+        reply_markup=member_menu(member),
 
         parse_mode="HTML"
 
     )
 
 
-
-
-
-
-
-
-
-# ==========================
+# =========================================================
 # CEK EXPIRED BUTTON
-# ==========================
-
+# =========================================================
 
 @router.callback_query(
-
-    F.data=="check_expired"
-
+    F.data == "check_expired"
 )
-
 async def check_expired(
-
     callback: CallbackQuery
-
 ):
 
-
     user_id = callback.from_user.id
-
 
     member = check_member(
         user_id
     )
 
 
+    # =====================================================
+    # GOOGLE SHEET ERROR
+    # =====================================================
 
+    if member.get("error") == "spreadsheet_unavailable":
+
+        await callback.message.answer(
+            """
+⚠️ <b>SISTEM MEMBERSHIP SEDANG TIDAK TERSEDIA</b>
+
+Google Sheets sedang mengalami
+gangguan sementara.
+
+Silakan coba kembali beberapa saat lagi.
+""",
+            parse_mode="HTML"
+        )
+
+        await callback.answer()
+
+        return
+
+
+    # =====================================================
+    # ACTIVE
+    # =====================================================
 
     if member["active"]:
 
+        package = member.get(
+            "package",
+            "-"
+        )
+
+
+        expired = member.get(
+            "expired",
+            ""
+        )
+
+
+        if str(package).strip().lower() == "lifetime":
+
+            expired_display = "∞ LIFETIME"
+
+        elif expired:
+
+            expired_display = expired
+
+        else:
+
+            expired_display = "-"
+
 
         text = f"""
-
 ⏳ <b>MEMBERSHIP STATUS</b>
 
 
@@ -229,12 +286,12 @@ ACTIVE
 
 📦 <b>Paket:</b>
 
-{member['package']}
+{package}
 
 
 📅 <b>Expired:</b>
 
-{member['expired']}
+{expired_display}
 
 
 ━━━━━━━━━━━━━━
@@ -245,21 +302,21 @@ bagian dari:
 
 
 🤖 <b>XAU AI ASSISTANT</b>
-
-
 """
 
 
+        keyboard = member_menu(
+            member
+        )
 
-        keyboard = member_menu()
 
-
+    # =====================================================
+    # EXPIRED
+    # =====================================================
 
     else:
 
-
         text = """
-
 🔒 <b>MEMBERSHIP SUDAH BERAKHIR</b>
 
 
@@ -281,16 +338,15 @@ untuk mendapatkan kembali:
 
 
 🤖 @Intradayxauusd_bot
-
-
 """
 
 
         keyboard = renew_button()
 
 
-
-
+    # =====================================================
+    # SEND
+    # =====================================================
 
     await callback.message.answer(
 
