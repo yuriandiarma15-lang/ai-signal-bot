@@ -3,9 +3,16 @@
 #
 # XAU AI SMC REAL
 # MATERI SMC
+#
+# File lokal:
+# materials/
+# ├── panduan_smc.pdf
+# ├── smc_basic.mp4
+# └── smc_cheatsheet.jpg
 # =========================================================
 
 import logging
+from pathlib import Path
 
 from aiogram import Router
 from aiogram.filters import Command
@@ -14,6 +21,7 @@ from aiogram.types import (
     CallbackQuery,
     InlineKeyboardButton,
     InlineKeyboardMarkup,
+    FSInputFile,
 )
 
 logger = logging.getLogger(__name__)
@@ -22,40 +30,35 @@ router = Router()
 
 
 # =========================================================
-# CONFIG GITHUB
-# =========================================================
-#
-# CONTOH:
-#
-# https://raw.githubusercontent.com/USERNAME/REPOSITORY/main/materi
-#
-# GANTI:
-# USERNAME
-# REPOSITORY
-#
+# PATH MATERIALS
 # =========================================================
 
-GITHUB_RAW_BASE = (
-    "https://raw.githubusercontent.com/"
-    "USERNAME/REPOSITORY/main/materi"
-)
+# Lokasi root project
+BASE_DIR = Path(__file__).resolve().parent.parent
+
+# Folder materials
+MATERIALS_DIR = BASE_DIR / "materials"
 
 
 # =========================================================
 # FILE MATERI
 # =========================================================
 
-VIDEO_URL = (
-    f"{GITHUB_RAW_BASE}/smc_basic.mp4"
-)
+VIDEO_FILE = MATERIALS_DIR / "smc_basic.mp4"
 
-PDF_URL = (
-    f"{GITHUB_RAW_BASE}/panduan_smc.pdf"
-)
+PDF_FILE = MATERIALS_DIR / "panduan_smc.pdf"
 
-IMAGE_URL = (
-    f"{GITHUB_RAW_BASE}/smc_cheatsheet.jpg"
-)
+IMAGE_FILE = MATERIALS_DIR / "smc_cheatsheet.jpg"
+
+
+# =========================================================
+# LOG PATH
+# =========================================================
+
+logger.info("📚 Materials directory : %s", MATERIALS_DIR)
+logger.info("🎥 SMC Video           : %s", VIDEO_FILE)
+logger.info("📕 SMC PDF             : %s", PDF_FILE)
+logger.info("🖼 SMC Image           : %s", IMAGE_FILE)
 
 
 # =========================================================
@@ -107,7 +110,7 @@ async def materi_command(
         "📚 *XAU AI SMC REAL — MATERI*\n"
         "━━━━━━━━━━━━━━━━━━\n\n"
 
-        "Pelajari Smart Money Concept "
+        "Pelajari *Smart Money Concept* "
         "dan tingkatkan pemahaman analisa XAUUSD.\n\n"
 
         "🎥 *SMC BASIC*\n"
@@ -130,7 +133,7 @@ async def materi_command(
 
 
 # =========================================================
-# 🎥 VIDEO
+# 🎥 VIDEO SMC BASIC
 # =========================================================
 
 @router.callback_query(
@@ -144,33 +147,72 @@ async def materi_video(
         "🎥 Mengirim video SMC Basic..."
     )
 
+    # -----------------------------------------------------
+    # CEK FILE
+    # -----------------------------------------------------
+
+    if not VIDEO_FILE.exists():
+
+        logger.error(
+            "❌ Video SMC tidak ditemukan: %s",
+            VIDEO_FILE,
+        )
+
+        await callback.message.answer(
+            "❌ *Video SMC tidak ditemukan.*\n\n"
+            f"Lokasi yang dicari:\n"
+            f"`{VIDEO_FILE}`",
+            parse_mode="Markdown",
+        )
+
+        return
+
+    # -----------------------------------------------------
+    # KIRIM VIDEO
+    # -----------------------------------------------------
+
     try:
 
+        video = FSInputFile(
+            path=VIDEO_FILE
+        )
+
         await callback.message.answer_video(
-            video=VIDEO_URL,
+            video=video,
             caption=(
                 "🎥 *SMC BASIC*\n"
                 "━━━━━━━━━━━━━━━━━━\n"
                 "Materi dasar Smart Money Concept.\n\n"
-                "🤖 XAU AI SMC REAL"
+                "Pelajari struktur market, "
+                "liquidity, BOS, CHoCH, OB dan FVG.\n\n"
+                "🤖 *XAU AI SMC REAL*"
             ),
             parse_mode="Markdown",
         )
 
-    except Exception:
+        logger.info(
+            "✅ Video SMC berhasil dikirim ke user %s",
+            callback.from_user.id,
+        )
+
+    except Exception as e:
 
         logger.exception(
-            "Gagal mengirim video SMC."
+            "❌ Gagal mengirim video SMC: %s",
+            e,
         )
 
         await callback.message.answer(
-            "❌ Video SMC belum dapat dikirim.\n"
-            "Pastikan file dan URL GitHub sudah benar."
+            "❌ *Video SMC gagal dikirim.*\n\n"
+            "File ditemukan, tetapi Telegram gagal "
+            "mengirim file tersebut.\n\n"
+            "Silakan cek log server.",
+            parse_mode="Markdown",
         )
 
 
 # =========================================================
-# 📕 PDF
+# 📕 PDF PANDUAN SMC
 # =========================================================
 
 @router.callback_query(
@@ -184,34 +226,73 @@ async def materi_pdf(
         "📕 Mengirim panduan SMC..."
     )
 
+    # -----------------------------------------------------
+    # CEK FILE
+    # -----------------------------------------------------
+
+    if not PDF_FILE.exists():
+
+        logger.error(
+            "❌ PDF SMC tidak ditemukan: %s",
+            PDF_FILE,
+        )
+
+        await callback.message.answer(
+            "❌ *Panduan SMC tidak ditemukan.*\n\n"
+            f"Lokasi yang dicari:\n"
+            f"`{PDF_FILE}`",
+            parse_mode="Markdown",
+        )
+
+        return
+
+    # -----------------------------------------------------
+    # KIRIM PDF
+    # -----------------------------------------------------
+
     try:
 
+        document = FSInputFile(
+            path=PDF_FILE
+        )
+
         await callback.message.answer_document(
-            document=PDF_URL,
+            document=document,
             caption=(
                 "📕 *PANDUAN SMC*\n"
                 "━━━━━━━━━━━━━━━━━━\n"
                 "Panduan Smart Money Concept "
                 "untuk membantu memahami struktur market.\n\n"
-                "🤖 XAU AI SMC REAL"
+                "Materi mencakup konsep penting "
+                "dalam analisa SMC.\n\n"
+                "🤖 *XAU AI SMC REAL*"
             ),
             parse_mode="Markdown",
         )
 
-    except Exception:
+        logger.info(
+            "✅ PDF SMC berhasil dikirim ke user %s",
+            callback.from_user.id,
+        )
+
+    except Exception as e:
 
         logger.exception(
-            "Gagal mengirim PDF SMC."
+            "❌ Gagal mengirim PDF SMC: %s",
+            e,
         )
 
         await callback.message.answer(
-            "❌ PDF belum dapat dikirim.\n"
-            "Pastikan file dan URL GitHub sudah benar."
+            "❌ *Panduan SMC gagal dikirim.*\n\n"
+            "File ditemukan, tetapi Telegram gagal "
+            "mengirim file tersebut.\n\n"
+            "Silakan cek log server.",
+            parse_mode="Markdown",
         )
 
 
 # =========================================================
-# 🖼 IMAGE
+# 🖼 SMC CHEATSHEET
 # =========================================================
 
 @router.callback_query(
@@ -225,26 +306,65 @@ async def materi_image(
         "🖼 Mengirim SMC Cheatsheet..."
     )
 
+    # -----------------------------------------------------
+    # CEK FILE
+    # -----------------------------------------------------
+
+    if not IMAGE_FILE.exists():
+
+        logger.error(
+            "❌ Image SMC tidak ditemukan: %s",
+            IMAGE_FILE,
+        )
+
+        await callback.message.answer(
+            "❌ *SMC Cheatsheet tidak ditemukan.*\n\n"
+            f"Lokasi yang dicari:\n"
+            f"`{IMAGE_FILE}`",
+            parse_mode="Markdown",
+        )
+
+        return
+
+    # -----------------------------------------------------
+    # KIRIM IMAGE
+    # -----------------------------------------------------
+
     try:
 
+        photo = FSInputFile(
+            path=IMAGE_FILE
+        )
+
         await callback.message.answer_photo(
-            photo=IMAGE_URL,
+            photo=photo,
             caption=(
                 "🖼 *SMC CHEATSHEET*\n"
                 "━━━━━━━━━━━━━━━━━━\n"
                 "Ringkasan konsep Smart Money Concept.\n\n"
-                "🤖 XAU AI SMC REAL"
+                "Gunakan cheatsheet ini sebagai "
+                "referensi cepat saat melakukan analisa.\n\n"
+                "🤖 *XAU AI SMC REAL*"
             ),
             parse_mode="Markdown",
         )
 
-    except Exception:
+        logger.info(
+            "✅ SMC Cheatsheet berhasil dikirim ke user %s",
+            callback.from_user.id,
+        )
+
+    except Exception as e:
 
         logger.exception(
-            "Gagal mengirim gambar SMC."
+            "❌ Gagal mengirim SMC Cheatsheet: %s",
+            e,
         )
 
         await callback.message.answer(
-            "❌ Cheatsheet belum dapat dikirim.\n"
-            "Pastikan file dan URL GitHub sudah benar."
+            "❌ *SMC Cheatsheet gagal dikirim.*\n\n"
+            "File ditemukan, tetapi Telegram gagal "
+            "mengirim file tersebut.\n\n"
+            "Silakan cek log server.",
+            parse_mode="Markdown",
         )
