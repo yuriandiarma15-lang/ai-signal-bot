@@ -4,7 +4,8 @@
 # XAU AI SMC REAL
 # MATERI SMC
 #
-# File lokal:
+# FILE LOKAL:
+#
 # materials/
 # ├── panduan_smc.pdf
 # ├── smc_basic.mp4
@@ -30,18 +31,27 @@ router = Router()
 
 
 # =========================================================
-# PATH MATERIALS
+# BASE DIRECTORY
 # =========================================================
 
-# Lokasi root project
+# handlers/materi.py
+#        ↓
+# parent = handlers
+#        ↓
+# parent.parent = root project
+
 BASE_DIR = Path(__file__).resolve().parent.parent
 
-# Folder materials
+
+# =========================================================
+# MATERIALS DIRECTORY
+# =========================================================
+
 MATERIALS_DIR = BASE_DIR / "materials"
 
 
 # =========================================================
-# FILE MATERI
+# FILE MATERIALS
 # =========================================================
 
 VIDEO_FILE = MATERIALS_DIR / "smc_basic.mp4"
@@ -52,17 +62,41 @@ IMAGE_FILE = MATERIALS_DIR / "smc_cheatsheet.jpg"
 
 
 # =========================================================
-# LOG PATH
+# STARTUP LOG
 # =========================================================
 
-logger.info("📚 Materials directory : %s", MATERIALS_DIR)
-logger.info("🎥 SMC Video           : %s", VIDEO_FILE)
-logger.info("📕 SMC PDF             : %s", PDF_FILE)
-logger.info("🖼 SMC Image           : %s", IMAGE_FILE)
+logger.info("==========================================")
+logger.info("📚 SMC MATERIALS")
+logger.info("==========================================")
+
+logger.info(
+    "📂 Materials directory : %s",
+    MATERIALS_DIR,
+)
+
+logger.info(
+    "🎥 Video               : %s | exists=%s",
+    VIDEO_FILE,
+    VIDEO_FILE.exists(),
+)
+
+logger.info(
+    "📕 PDF                 : %s | exists=%s",
+    PDF_FILE,
+    PDF_FILE.exists(),
+)
+
+logger.info(
+    "🖼 Image               : %s | exists=%s",
+    IMAGE_FILE,
+    IMAGE_FILE.exists(),
+)
+
+logger.info("==========================================")
 
 
 # =========================================================
-# MENU MATERI
+# KEYBOARD
 # =========================================================
 
 def materi_keyboard() -> InlineKeyboardMarkup:
@@ -99,9 +133,7 @@ def materi_keyboard() -> InlineKeyboardMarkup:
 # /materi
 # =========================================================
 
-@router.message(
-    Command("materi")
-)
+@router.message(Command("materi"))
 async def materi_command(
     message: Message,
 ):
@@ -144,7 +176,7 @@ async def materi_video(
 ):
 
     await callback.answer(
-        "🎥 Mengirim video SMC Basic..."
+        "🎥 Menyiapkan video SMC Basic..."
     )
 
     # -----------------------------------------------------
@@ -154,18 +186,41 @@ async def materi_video(
     if not VIDEO_FILE.exists():
 
         logger.error(
-            "❌ Video SMC tidak ditemukan: %s",
+            "❌ VIDEO TIDAK DITEMUKAN: %s",
             VIDEO_FILE,
         )
 
         await callback.message.answer(
             "❌ *Video SMC tidak ditemukan.*\n\n"
-            f"Lokasi yang dicari:\n"
-            f"`{VIDEO_FILE}`",
+            "Pastikan file berada di:\n"
+            "`materials/smc_basic.mp4`",
             parse_mode="Markdown",
         )
 
         return
+
+    # -----------------------------------------------------
+    # CEK UKURAN FILE
+    # -----------------------------------------------------
+
+    try:
+
+        video_size = VIDEO_FILE.stat().st_size
+
+        video_size_mb = video_size / (
+            1024 * 1024
+        )
+
+        logger.info(
+            "🎥 Video size: %.2f MB",
+            video_size_mb,
+        )
+
+    except Exception:
+
+        logger.exception(
+            "❌ Gagal membaca ukuran video."
+        )
 
     # -----------------------------------------------------
     # KIRIM VIDEO
@@ -173,40 +228,61 @@ async def materi_video(
 
     try:
 
+        logger.info(
+            "🎥 Mengirim SMC Basic kepada user_id=%s",
+            callback.from_user.id,
+        )
+
         video = FSInputFile(
-            path=VIDEO_FILE
+            path=VIDEO_FILE,
+            filename="smc_basic.mp4",
         )
 
         await callback.message.answer_video(
             video=video,
             caption=(
                 "🎥 *SMC BASIC*\n"
-                "━━━━━━━━━━━━━━━━━━\n"
-                "Materi dasar Smart Money Concept.\n\n"
-                "Pelajari struktur market, "
-                "liquidity, BOS, CHoCH, OB dan FVG.\n\n"
+                "━━━━━━━━━━━━━━━━━━\n\n"
+
+                "Materi dasar *Smart Money Concept*.\n\n"
+
+                "Pelajari:\n"
+                "• Market Structure\n"
+                "• Liquidity\n"
+                "• BOS\n"
+                "• CHoCH\n"
+                "• Order Block\n"
+                "• Fair Value Gap\n\n"
+
                 "🤖 *XAU AI SMC REAL*"
             ),
             parse_mode="Markdown",
+
+            # Memungkinkan Telegram melakukan streaming
+            supports_streaming=True,
         )
 
         logger.info(
-            "✅ Video SMC berhasil dikirim ke user %s",
+            "✅ VIDEO SMC BERHASIL DIKIRIM | user_id=%s",
             callback.from_user.id,
         )
+
+    # -----------------------------------------------------
+    # ERROR
+    # -----------------------------------------------------
 
     except Exception as e:
 
         logger.exception(
-            "❌ Gagal mengirim video SMC: %s",
+            "❌ GAGAL MENGIRIM VIDEO SMC: %s",
             e,
         )
 
         await callback.message.answer(
             "❌ *Video SMC gagal dikirim.*\n\n"
-            "File ditemukan, tetapi Telegram gagal "
-            "mengirim file tersebut.\n\n"
-            "Silakan cek log server.",
+            "Telegram mengalami masalah saat "
+            "memproses file video.\n\n"
+            "Silakan coba kembali.",
             parse_mode="Markdown",
         )
 
@@ -233,14 +309,14 @@ async def materi_pdf(
     if not PDF_FILE.exists():
 
         logger.error(
-            "❌ PDF SMC tidak ditemukan: %s",
+            "❌ PDF TIDAK DITEMUKAN: %s",
             PDF_FILE,
         )
 
         await callback.message.answer(
             "❌ *Panduan SMC tidak ditemukan.*\n\n"
-            f"Lokasi yang dicari:\n"
-            f"`{PDF_FILE}`",
+            "Pastikan file berada di:\n"
+            "`materials/panduan_smc.pdf`",
             parse_mode="Markdown",
         )
 
@@ -252,41 +328,48 @@ async def materi_pdf(
 
     try:
 
+        logger.info(
+            "📕 Mengirim PDF SMC kepada user_id=%s",
+            callback.from_user.id,
+        )
+
         document = FSInputFile(
-            path=PDF_FILE
+            path=PDF_FILE,
+            filename="panduan_smc.pdf",
         )
 
         await callback.message.answer_document(
             document=document,
             caption=(
                 "📕 *PANDUAN SMC*\n"
-                "━━━━━━━━━━━━━━━━━━\n"
-                "Panduan Smart Money Concept "
+                "━━━━━━━━━━━━━━━━━━\n\n"
+
+                "Panduan *Smart Money Concept* "
                 "untuk membantu memahami struktur market.\n\n"
-                "Materi mencakup konsep penting "
-                "dalam analisa SMC.\n\n"
+
+                "Pelajari konsep penting SMC "
+                "sebagai referensi analisa XAUUSD.\n\n"
+
                 "🤖 *XAU AI SMC REAL*"
             ),
             parse_mode="Markdown",
         )
 
         logger.info(
-            "✅ PDF SMC berhasil dikirim ke user %s",
+            "✅ PDF SMC BERHASIL DIKIRIM | user_id=%s",
             callback.from_user.id,
         )
 
     except Exception as e:
 
         logger.exception(
-            "❌ Gagal mengirim PDF SMC: %s",
+            "❌ GAGAL MENGIRIM PDF SMC: %s",
             e,
         )
 
         await callback.message.answer(
             "❌ *Panduan SMC gagal dikirim.*\n\n"
-            "File ditemukan, tetapi Telegram gagal "
-            "mengirim file tersebut.\n\n"
-            "Silakan cek log server.",
+            "Silakan coba kembali.",
             parse_mode="Markdown",
         )
 
@@ -313,14 +396,14 @@ async def materi_image(
     if not IMAGE_FILE.exists():
 
         logger.error(
-            "❌ Image SMC tidak ditemukan: %s",
+            "❌ IMAGE TIDAK DITEMUKAN: %s",
             IMAGE_FILE,
         )
 
         await callback.message.answer(
             "❌ *SMC Cheatsheet tidak ditemukan.*\n\n"
-            f"Lokasi yang dicari:\n"
-            f"`{IMAGE_FILE}`",
+            "Pastikan file berada di:\n"
+            "`materials/smc_cheatsheet.jpg`",
             parse_mode="Markdown",
         )
 
@@ -332,39 +415,47 @@ async def materi_image(
 
     try:
 
+        logger.info(
+            "🖼 Mengirim Cheatsheet kepada user_id=%s",
+            callback.from_user.id,
+        )
+
         photo = FSInputFile(
-            path=IMAGE_FILE
+            path=IMAGE_FILE,
+            filename="smc_cheatsheet.jpg",
         )
 
         await callback.message.answer_photo(
             photo=photo,
             caption=(
                 "🖼 *SMC CHEATSHEET*\n"
-                "━━━━━━━━━━━━━━━━━━\n"
-                "Ringkasan konsep Smart Money Concept.\n\n"
+                "━━━━━━━━━━━━━━━━━━\n\n"
+
+                "Ringkasan konsep *Smart Money Concept*.\n\n"
+
                 "Gunakan cheatsheet ini sebagai "
-                "referensi cepat saat melakukan analisa.\n\n"
+                "referensi cepat ketika melakukan "
+                "analisa market.\n\n"
+
                 "🤖 *XAU AI SMC REAL*"
             ),
             parse_mode="Markdown",
         )
 
         logger.info(
-            "✅ SMC Cheatsheet berhasil dikirim ke user %s",
+            "✅ CHEATSHEET BERHASIL DIKIRIM | user_id=%s",
             callback.from_user.id,
         )
 
     except Exception as e:
 
         logger.exception(
-            "❌ Gagal mengirim SMC Cheatsheet: %s",
+            "❌ GAGAL MENGIRIM CHEATSHEET: %s",
             e,
         )
 
         await callback.message.answer(
             "❌ *SMC Cheatsheet gagal dikirim.*\n\n"
-            "File ditemukan, tetapi Telegram gagal "
-            "mengirim file tersebut.\n\n"
-            "Silakan cek log server.",
+            "Silakan coba kembali.",
             parse_mode="Markdown",
         )
