@@ -88,6 +88,10 @@ from services.signal_store import (
     save_signal,
 )
 
+from services.combined_signal import (
+    process_signal,
+)
+
 
 logger = logging.getLogger(__name__)
 
