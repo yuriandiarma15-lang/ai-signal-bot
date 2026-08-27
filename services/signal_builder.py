@@ -66,10 +66,23 @@ PRINSIP UTAMA
 # IMPORT
 # =========================================================
 
+import logging
+
 from dataclasses import dataclass
 from datetime import datetime
 from typing import List, Optional, Tuple
 from zoneinfo import ZoneInfo
+
+
+# =========================================================
+# LOGGER
+#
+# FIX: logger dipakai di beberapa tempat di file ini
+# (fundamental news, combined analysis) tapi sebelumnya
+# tidak pernah didefinisikan -> NameError saat runtime.
+# =========================================================
+
+logger = logging.getLogger(__name__)
 
 
 # =========================================================
@@ -2834,48 +2847,6 @@ def generate_signal(
         m1_candles=recent_m1,
     )
 
-
-    # =====================================================
-    # ZONE
-    # =====================================================
-
-    zone_price = float(
-        selected_zone["price"]
-    )
-
-    zone_type = selected_zone[
-        "type"
-    ]
-
-    fill_status = selected_zone[
-        "status"
-    ]
-
-    zone_low = float(
-        selected_zone["low"]
-    )
-
-    zone_high = float(
-        selected_zone["high"]
-    )
-
-    zone_timeframe = selected_zone[
-        "timeframe"
-    ]
-    # =====================================================
-    # BEST ZONE
-    # =====================================================
-
-    (
-        selected_zone,
-        selected_smc,
-    ) = _find_best_entry_zone(
-        m5_smc=m5_smc,
-        m1_smc=m1_smc,
-        current_price=current_price,
-        m5_candles=recent_m5,
-        m1_candles=recent_m1,
-    )
 
     # =====================================================
     # ZONE
