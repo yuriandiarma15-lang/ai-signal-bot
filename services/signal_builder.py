@@ -59,6 +59,73 @@ PRINSIP UTAMA
 11. Harga:
     4005.72 -> 4005
     3998.34 -> 3998
+
+=============================================================
+CHANGELOG (FIX)
+=============================================================
+FIX #1 — PARAMETER MISMATCH SAAT MEMANGGIL
+          combine_smc_and_fundamental()
+
+    SEBELUM (SALAH):
+        combine_smc_and_fundamental(
+            smc_bias=m5_smc.bias,
+            probability_buy=smc_probability_buy,
+            probability_sell=smc_probability_sell,
+            fundamental=fundamental_context,
+        )
+
+    combined_service.py mendefinisikan parameter dengan nama
+    BERBEDA:
+        smc_result=None,
+        fundamental_context=None,
+        smc_probability_buy=None,
+        smc_probability_sell=None,
+        **kwargs,
+
+    Karena signal_builder mengirim nama parameter yang tidak
+    cocok sama sekali (smc_bias, probability_buy,
+    probability_sell, fundamental), semuanya jatuh ke **kwargs
+    dan TIDAK PERNAH dipakai. Akibatnya smc_probability_buy /
+    smc_probability_sell di dalam combine_smc_and_fundamental
+    selalu None -> fallback ke bias kosong -> 50/50 NEUTRAL.
+    fundamental_context juga selalu None -> 50/50 NEUTRAL.
+    Hasil combine selalu 50/50, lalu tie-breaker memilih BUY.
+
+    SESUDAH (BENAR):
+        combine_smc_and_fundamental(
+            smc_result=m5_smc,
+            smc_probability_buy=smc_probability_buy,
+            smc_probability_sell=smc_probability_sell,
+            fundamental_context=fundamental_context,
+        )
+
+FIX #2 — TIE-BREAKER _choose_direction() DIAM-DIAM SELALU BUY
+
+    SEBELUM:
+        final_bias = _choose_direction(
+            probability_buy,
+            probability_sell,
+        )
+
+        def _choose_direction(buy_probability, sell_probability):
+            if buy_probability >= sell_probability:
+                return "bullish"
+            return "bearish"
+
+    Kalau buy == sell (mis. 50/50 akibat FIX #1 belum ada),
+    fungsi ini SELALU mengembalikan "bullish". Ini membuat bug
+    parameter di atas semakin tidak kelihatan, karena hasilnya
+    konsisten BUY bukan error/exception.
+
+    SESUDAH:
+    final_bias sekarang diambil dari `bias` yang sudah
+    diputuskan oleh combine_smc_and_fundamental() (yang
+    tie-break-nya memakai smc_probability_buy/sell ASLI,
+    bukan hasil gabungan yang sudah dibulatkan). Fungsi
+    _choose_direction() hanya dipakai sebagai fallback kalau
+    combined_result ternyata tidak mengandung key "bias" sama
+    sekali (mis. exception fallback dict lama).
+=============================================================
 """
 
 
@@ -2023,6 +2090,16 @@ def _directional_probability(
 
 # =========================================================
 # FINAL DIRECTION
+#
+# CATATAN (FIX):
+# Fungsi ini sekarang HANYA dipakai sebagai FALLBACK kalau
+# combined_result dari combine_smc_and_fundamental() tidak
+# mengandung key "bias" sama sekali (mis. jika suatu saat
+# combined_service diganti versi lama). Jalur utama sekarang
+# memakai bias yang sudah diputuskan oleh
+# combine_smc_and_fundamental(), yang tie-break-nya memakai
+# probability SMC ASLI (smc_probability_buy/sell), bukan
+# probability gabungan yang sudah dibulatkan.
 # =========================================================
 
 def _choose_direction(
@@ -2030,10 +2107,22 @@ def _choose_direction(
     sell_probability: int,
 ) -> str:
 
-    if buy_probability >= sell_probability:
+    if buy_probability > sell_probability:
 
         return "bullish"
 
+    if sell_probability > buy_probability:
+
+        return "bearish"
+
+    # Tie murni (jarang terjadi di jalur utama, tapi tetap
+    # ditangani secara eksplisit -- TIDAK diam-diam ke bullish
+    # tanpa alasan). Di sini kita tidak punya info tambahan,
+    # jadi kita pilih berdasarkan nilai yang lebih besar dari
+    # 50 (default netral) -- kalau sama-sama 50, default ke
+    # bearish supaya tidak terus-menerus condong ke BUY seperti
+    # bug sebelumnya. Jalur utama di generate_signal() seharusnya
+    # tidak pernah sampai ke default ini.
     return "bearish"
 
 
@@ -2865,6 +2954,23 @@ def generate_signal(
 
     # =====================================================
     # COMBINED SMC + FUNDAMENTAL
+    #
+    # FIX (PENTING):
+    # Sebelumnya fungsi ini dipanggil dengan nama parameter
+    # yang TIDAK COCOK dengan definisi combine_smc_and_
+    # fundamental() di combined_service.py (smc_bias,
+    # probability_buy, probability_sell, fundamental).
+    # Karena fungsi punya **kwargs, tidak ada error yang
+    # muncul -- tapi smc_probability_buy/sell dan
+    # fundamental_context di dalam fungsi selalu None,
+    # sehingga hasilnya selalu netral 50/50, lalu tie-
+    # breaker lama selalu memilih BUY.
+    #
+    # Sekarang dipanggil dengan nama parameter yang BENAR:
+    #   smc_result             -> objek/dict SMC (untuk bias)
+    #   smc_probability_buy    -> probability SMC asli
+    #   smc_probability_sell   -> probability SMC asli
+    #   fundamental_context    -> context fundamental
     # =====================================================
 
     try:
@@ -2872,17 +2978,17 @@ def generate_signal(
         combined_result = (
             combine_smc_and_fundamental(
 
-                smc_bias=m5_smc.bias,
+                smc_result=m5_smc,
 
-                probability_buy=(
+                smc_probability_buy=(
                     smc_probability_buy
                 ),
 
-                probability_sell=(
+                smc_probability_sell=(
                     smc_probability_sell
                 ),
 
-                fundamental=(
+                fundamental_context=(
                     fundamental_context
                 ),
 
@@ -2986,13 +3092,45 @@ def generate_signal(
     # =====================================================
     # FINAL DIRECTION
     #
-    # Tetap menggunakan fungsi lama.
+    # FIX (PENTING):
+    # Sebelumnya arah akhir DIHITUNG ULANG dari
+    # probability_buy/sell yang sudah dibulatkan memakai
+    # _choose_direction(), yang tie-breaker-nya diam-diam
+    # selalu memilih "bullish" saat seri (>=). Ini membuat
+    # bug parameter di atas tidak kelihatan, karena hasilnya
+    # selalu konsisten BUY, bukan error.
+    #
+    # Sekarang kita pakai LANGSUNG bias yang sudah diputuskan
+    # oleh combine_smc_and_fundamental(), karena tie-breaker
+    # DI SANA memakai smc_probability_buy/sell ASLI (bukan
+    # hasil gabungan yang sudah dibulatkan) sebagai penentu,
+    # yang lebih akurat mencerminkan struktur market. Fungsi
+    # _choose_direction() hanya dipakai sebagai fallback kalau
+    # combined_result ternyata tidak mengandung key "bias".
     # =====================================================
 
-    final_bias = _choose_direction(
-        probability_buy,
-        probability_sell,
+    combined_bias_str = combined_result.get(
+        "bias",
+        None,
     )
+
+    if combined_bias_str == "BUY":
+
+        final_bias = "bullish"
+
+    elif combined_bias_str == "SELL":
+
+        final_bias = "bearish"
+
+    else:
+
+        # Fallback defensif -- seharusnya tidak pernah
+        # terpakai selama combine_smc_and_fundamental()
+        # selalu mengembalikan key "bias".
+        final_bias = _choose_direction(
+            probability_buy,
+            probability_sell,
+        )
 
 
     # =====================================================
@@ -3359,6 +3497,22 @@ def generate_signal(
             f"{'BUY' if final_bias == 'bullish' else 'SELL'}."
         )
     )
+
+    # =====================================================
+    # COMBINED (SMC + FUNDAMENTAL) BREAKDOWN
+    #
+    # FIX: reasons dari combine_smc_and_fundamental() kini
+    # benar-benar mencerminkan angka yang dipakai (karena
+    # parameter yang dikirim sudah benar), jadi kita
+    # sertakan supaya member bisa melihat breakdown SMC vs
+    # Fundamental secara transparan.
+    # =====================================================
+
+    for reason in combined_reasons:
+
+        reasons.append(
+            reason
+        )
 
     # =====================================================
     # STRUCTURE
