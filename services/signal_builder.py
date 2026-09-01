@@ -125,6 +125,39 @@ FIX #2 — TIE-BREAKER _choose_direction() DIAM-DIAM SELALU BUY
     _choose_direction() hanya dipakai sebagai fallback kalau
     combined_result ternyata tidak mengandung key "bias" sama
     sekali (mis. exception fallback dict lama).
+
+FIX #3 — CACHE RATE-LIMITER "1 SIGNAL PER JAM" TIDAK SELARAS
+          DENGAN JAM DINDING, SEHINGGA SIGNAL JAM BARU BISA
+          IKUT MEMAKAI SIGNAL JAM SEBELUMNYA
+
+    SEBELUM (SALAH):
+        _cache_is_fresh() hanya menghitung selisih menit
+        murni antara `now` dan `generated_at`:
+
+            elapsed_minutes = (now - generated_at).total_seconds() / 60
+            return elapsed_minutes < SIGNAL_INTERVAL_MINUTES
+
+        Masalahnya: signal jam 14 sering baru selesai
+        digenerate beberapa menit SETELAH jam 14:00 (proses
+        fetch candle, fundamental, dsb butuh waktu, atau
+        scheduler tidak presisi di menit 00). Kalau signal
+        jam 14 baru "lahir" jam 14:05, maka saat scheduler
+        mencoba generate signal jam 15:00, selisihnya baru
+        55 menit (< 60 menit) -> cache dianggap masih segar
+        -> signal jam 14 dipakai ulang dan dikirim sebagai
+        signal jam 15.
+
+    SESUDAH (BENAR):
+        Cache sekarang juga mengecek apakah `now` dan
+        `generated_at` masih berada di JAM DINDING yang sama
+        (tanggal + jam yang sama). Begitu jam berganti
+        (mis. dari jam 14 ke jam 15), cache otomatis dianggap
+        TIDAK segar lagi -- terlepas dari berapa pun elapsed
+        minutes-nya -- sehingga signal baru pasti dihasilkan
+        di jam baru. Elapsed-minutes check tetap dipertahankan
+        sebagai lapisan pengaman tambahan di dalam jam yang
+        sama (mencegah spam analyze() kalau di-trigger berkali-
+        kali dalam jam yang sama).
 =============================================================
 """
 
@@ -2533,9 +2566,50 @@ def _build_educational_reason(
 # TIDAK akan bertahan antar panggilan, dan rate-limit
 # jam-an harus dipindah ke penyimpanan persisten
 # (file/DB/Redis) di luar modul ini.
+#
+# FIX #3 (PENTING):
+# Sebelumnya "segar" HANYA dicek dari selisih menit murni
+# terhadap generated_at. Ini menyebabkan signal jam 14 yang
+# baru selesai digenerate beberapa menit setelah jam 14:00
+# bisa dianggap "masih segar" saat scheduler mencoba
+# generate signal jam 15:00 (karena selisihnya belum genap
+# 60 menit) -- sehingga signal jam 14 dikirim ulang sebagai
+# signal jam 15.
+#
+# Sekarang cache HARUS ganti begitu jam dinding berganti
+# (tanggal + jam berbeda dari generated_at), terlepas dari
+# elapsed minutes-nya. Elapsed-minutes tetap dipakai sebagai
+# pengaman tambahan di DALAM jam yang sama.
 # =========================================================
 
 SIGNAL_INTERVAL_MINUTES = 60
+
+
+def _hour_slot(
+    dt: datetime,
+) -> Tuple[
+    int,
+    int,
+    int,
+    int,
+]:
+    """
+    Merepresentasikan "jam dinding" dari sebuah datetime
+    sebagai tuple (tahun, bulan, hari, jam) di timezone WIB.
+
+    Dua datetime dianggap berada di jam yang sama kalau
+    tuple ini identik.
+    """
+
+    dt = _to_wib(dt)
+
+    return (
+        dt.year,
+        dt.month,
+        dt.day,
+        dt.hour,
+    )
+
 
 _LAST_SIGNAL_CACHE = {
     "signal": None,
@@ -2554,6 +2628,26 @@ def _cache_is_fresh(
     if generated_at is None:
         return False
 
+    # =====================================================
+    # CEK JAM DINDING
+    #
+    # Kalau jam sudah berganti (mis. dari 14 ke 15),
+    # cache TIDAK PERNAH dianggap segar lagi, berapa pun
+    # elapsed minutes-nya.
+    # =====================================================
+
+    if _hour_slot(now) != _hour_slot(generated_at):
+
+        return False
+
+    # =====================================================
+    # CEK ELAPSED MINUTES (PENGAMAN TAMBAHAN)
+    #
+    # Masih di jam yang sama -> tetap hormati interval
+    # menit supaya tidak spam analyze() kalau di-trigger
+    # berkali-kali dalam jam yang sama.
+    # =====================================================
+
     elapsed_minutes = (
         (now - generated_at).total_seconds()
         / 60
@@ -2568,6 +2662,14 @@ def get_cached_signal() -> Optional["TradeSignal"]:
     analisa baru. Berguna untuk endpoint/handler yang
     hanya ingin menampilkan signal jam ini tanpa
     ikut memutuskan apakah harus generate baru.
+
+    CATATAN: fungsi ini TIDAK mengecek kesegaran cache.
+    Kalau dipakai untuk mengirim signal ke Telegram di
+    proses/job yang terpisah dari generate_signal(),
+    pastikan job tersebut memanggil generate_signal()
+    (bukan get_cached_signal()) supaya rate-limiter jam
+    dinding di atas ikut berlaku, dan signal jam baru
+    tidak ikut memakai signal jam sebelumnya.
     """
 
     return _LAST_SIGNAL_CACHE.get("signal")
@@ -2600,13 +2702,14 @@ def generate_signal(
     now = datetime.now(WIB)
 
     # =====================================================
-    # RATE LIMIT — 1 SIGNAL PER JAM
+    # RATE LIMIT — 1 SIGNAL PER JAM (SELARAS JAM DINDING)
     #
-    # Kalau signal terakhir masih "segar" (< 60 menit),
+    # Kalau signal terakhir masih "segar" -- yaitu masih di
+    # JAM DINDING yang sama DAN belum genap 60 menit --
     # kembalikan signal yang sama alih-alih menganalisa
-    # ulang. Ini mengurangi jumlah sinyal yang keluar
-    # secara drastis dan mencegah sinyal saling
-    # bertentangan dalam rentang waktu pendek.
+    # ulang. Begitu jam berganti, signal baru SELALU
+    # dihasilkan meskipun signal sebelumnya baru berumur
+    # beberapa menit.
     # =====================================================
 
     if (
@@ -3911,7 +4014,7 @@ def generate_signal(
     )
 
     # =====================================================
-    # SIMPAN KE CACHE (RATE LIMIT 1 JAM)
+    # SIMPAN KE CACHE (RATE LIMIT 1 JAM, SELARAS JAM DINDING)
     # =====================================================
 
     _LAST_SIGNAL_CACHE["signal"] = signal
