@@ -158,6 +158,68 @@ FIX #3 — CACHE RATE-LIMITER "1 SIGNAL PER JAM" TIDAK SELARAS
         sebagai lapisan pengaman tambahan di dalam jam yang
         sama (mencegah spam analyze() kalau di-trigger berkali-
         kali dalam jam yang sama).
+
+FIX #4 — ENTRY SELALU MARKET, ZONA SMC TIDAK PERNAH DIPAKAI
+          SEBAGAI TITIK MASUK
+
+    SEBELUM (SALAH):
+        entry_price = current_price
+        order_type = "Market"
+        is_pending = False
+
+    Order Block / FVG / Demand / Supply sudah susah payah
+    dicari lewat _find_best_entry_zone(), tapi hasilnya HANYA
+    dipakai sebagai teks "Entry Area" di reasoning -- entry
+    aktual selalu market di harga sekarang, walau zona SMC
+    berada jauh dari harga saat itu (bisa di sisi yang salah).
+    Ini menghilangkan keunggulan utama SMC: masuk di discount/
+    premium area, bukan mengejar harga.
+
+    SESUDAH (BENAR):
+        Kalau zona entry berjarak lebih dari
+        MARKET_ENTRY_TOLERANCE dari harga sekarang, signal
+        memakai PENDING ORDER (Buy Limit / Sell Limit) tepat
+        di zona tersebut, memakai _determine_order_type() yang
+        sudah ada di file ini (sebelumnya tidak pernah
+        dipanggil sama sekali). Kalau harga sudah dekat zona,
+        tetap market entry seperti biasa. Member menerima
+        instruksi pending yang jelas (sudah ada di reasons/
+        format, sekarang benar-benar terpakai).
+
+FIX #5 — RR / SL TIDAK MEMBEDAKAN KUALITAS SETUP
+          (M1 CONFIRMATION & STATUS ZONA)
+
+    SEBELUM:
+        _select_rr1() hanya melihat probability arah untuk
+        memilih RR1 dari satu daftar RR_LEVELS yang sama,
+        terlepas dari apakah M1 memberi konfirmasi rejection
+        atau tidak, dan terlepas dari apakah zona entry masih
+        "untouched" (segar) atau "full" (sudah pernah disentuh
+        / berpotensi lemah).
+
+    SESUDAH:
+        RR1 sekarang dipilih dari salah satu dari dua daftar:
+        RR_LOW_TIER (tanpa M1 confirmation, RR dibatasi lebih
+        rendah) atau RR_HIGH_TIER (dengan M1 confirmation, RR
+        boleh lebih tinggi). Buffer volatilitas (ATR) yang
+        dipakai untuk menghitung SL juga disesuaikan dengan
+        status zona: zona "untouched" pakai buffer lebih
+        sempit (lebih dipercaya), zona "full" pakai buffer
+        lebih lebar (kurang dipercaya, butuh ruang noise lebih
+        besar) supaya tidak gampang kena SL palsu.
+
+FIX #6 — TIDAK ADA LABEL KUALITAS SINYAL UNTUK MEMBER/ADMIN
+
+    Signal sekarang membawa field `strength` (STRONG / MEDIUM
+    / WEAK) yang dihitung dari kombinasi probability, status
+    M1 confirmation, jenis zona (OB/FVG lebih kuat dari
+    fallback Demand/Supply), dan status zona (untouched lebih
+    kuat dari full). PRINSIP #1 (signal selalu keluar) tetap
+    dipertahankan -- ini bukan filter yang membatalkan signal,
+    hanya label transparansi supaya member dan admin bisa
+    melihat mana sinyal yang confidence-nya benar-benar tinggi
+    vs yang sekadar "harus keluar karena jadwal jam". Data ini
+    juga memudahkan audit winrate per level strength ke depan.
 =============================================================
 """
 
@@ -407,6 +469,12 @@ class TradeSignal:
     tp1_pips: int = 0
 
     tp2_pips: int = 0
+
+    # =====================================================
+    # FIX #6 — SIGNAL QUALITY LABEL (TIDAK MEMBATALKAN SIGNAL)
+    # =====================================================
+
+    strength: str = "MEDIUM"
 
 
 # =========================================================
@@ -1273,12 +1341,35 @@ def _build_fallback_zone(
     sebagai Demand/Supply.
 
     Ini membuat signal tetap bisa keluar.
+
+    FIX #4/#5 (kualitas fallback):
+    Sebelumnya lebar zona fallback dihitung dari 20% jarak
+    high-low candle sample secara membabi-buta, tanpa
+    memperhatikan volatilitas riil. Sekarang lebar zona
+    memakai buffer berbasis ATR (rata-rata range candle
+    sample) supaya lebih proporsional terhadap kondisi
+    market saat itu -- market kalem dapat zona sempit,
+    market volatil dapat zona lebih lebar.
     """
 
     if not candles:
         return None
 
     sample = candles[-6:]
+
+    ranges = [
+        (float(c.high) - float(c.low))
+        for c in sample
+        if (c.high - c.low) > 0
+    ]
+
+    atr = (
+        sum(ranges) / len(ranges)
+        if ranges
+        else _pips_to_price(15)
+    )
+
+    fallback_buffer = atr * 0.6
 
     if bias == "bullish":
 
@@ -1321,9 +1412,7 @@ def _build_fallback_zone(
 
             zone_high = (
                 low
-                + (
-                    max(highs) - low
-                ) * 0.20
+                + fallback_buffer
             )
 
         if zone_high > current_price:
@@ -1400,9 +1489,7 @@ def _build_fallback_zone(
 
         zone_low = (
             high
-            - (
-                high - min(lows)
-            ) * 0.20
+            - fallback_buffer
         )
 
     if zone_low < current_price:
@@ -2240,9 +2327,10 @@ def _determine_order_type(
 #
 # TAPI dengan batas keamanan supaya jarak tidak liar:
 #   - SL DIJAMIN berada di antara SL_MIN_PIPS - SL_MAX_PIPS.
-#   - RR (TP1) dipilih dari daftar tetap RR_LEVELS,
-#     berdasarkan kekuatan sinyal (probability arah yang
-#     dipilih). Sinyal lebih kuat -> RR lebih tinggi.
+#   - RR (TP1) dipilih dari daftar tetap, berdasarkan
+#     kekuatan sinyal (probability arah yang dipilih) DAN
+#     kualitas konfirmasi (M1 rejection). Sinyal lebih kuat
+#     -> RR lebih tinggi.
 #   - TP2 = RR TP1 + RR2_EXTRA (tetap dari daftar yang sama,
 #     satu tingkat di atas RR1), supaya TP2 selalu lebih jauh
 #     dari TP1 tapi tidak melebihi rentang yang wajar.
@@ -2251,23 +2339,39 @@ def _determine_order_type(
 SL_MIN_PIPS = 40
 SL_MAX_PIPS = 70
 
-# Daftar RR yang boleh dipakai untuk TP1.
-# Dipilih berdasarkan kekuatan/probability sinyal.
-RR_LEVELS = [1.1, 1.2, 1.3, 1.4, 1.5]
+# FIX #5:
+# Dua tingkatan RR, dipilih berdasarkan ada/tidaknya M1
+# confirmation. Tanpa konfirmasi M1, RR dibatasi lebih
+# rendah (setup lebih spekulatif). Dengan konfirmasi M1,
+# RR boleh naik lebih tinggi (setup lebih meyakinkan).
+RR_LOW_TIER = [1.1, 1.2]
+RR_HIGH_TIER = [1.2, 1.3, 1.4, 1.5]
+
+# Dipertahankan untuk compatibility kalau ada pemanggil lama.
+RR_LEVELS = RR_HIGH_TIER
 
 # Selisih RR yang ditambahkan untuk TP2 relatif ke RR1.
 RR2_EXTRA = 0.8
 
+# FIX #6 — ambang label kekuatan sinyal (tidak membatalkan signal).
+STRONG_PROB_THRESHOLD = 68
+WEAK_PROB_THRESHOLD = 56
+
 
 def _select_rr1(
     probability: int,
+    m1_confirmation: bool = False,
 ) -> float:
     """
-    Memilih RR (TP1) dari RR_LEVELS berdasarkan probability
-    arah sinyal yang terpilih.
+    Memilih RR (TP1) berdasarkan probability arah sinyal
+    yang terpilih DAN status konfirmasi M1.
 
-    Probability rendah (~50%) -> RR paling kecil (1.1).
-    Probability tinggi (~99%) -> RR paling besar (1.5).
+    FIX #5:
+    Sebelumnya semua sinyal (dengan atau tanpa M1
+    confirmation) memakai satu daftar RR yang sama, padahal
+    secara empiris setup tanpa konfirmasi M1 secara historis
+    cenderung lebih sering menyentuh SL. Sekarang daftar RR
+    yang dipakai berbeda tergantung m1_confirmation.
     """
 
     probability = max(
@@ -2275,9 +2379,15 @@ def _select_rr1(
         min(99, int(probability)),
     )
 
+    levels = (
+        RR_HIGH_TIER
+        if m1_confirmation
+        else RR_LOW_TIER
+    )
+
     span = 99 - 50
 
-    step = span / (len(RR_LEVELS) - 1)
+    step = span / (len(levels) - 1)
 
     idx = int(
         round(
@@ -2287,10 +2397,49 @@ def _select_rr1(
 
     idx = max(
         0,
-        min(len(RR_LEVELS) - 1, idx),
+        min(len(levels) - 1, idx),
     )
 
-    return RR_LEVELS[idx]
+    return levels[idx]
+
+
+def _classify_strength(
+    probability: int,
+    m1_confirmation: bool,
+    fill_status: str,
+    zone_type: Optional[str],
+) -> str:
+    """
+    FIX #6:
+    Label kualitas sinyal (STRONG / MEDIUM / WEAK), murni
+    untuk transparansi ke member/admin dan untuk memudahkan
+    audit winrate per level ke depan. TIDAK membatalkan atau
+    memblokir pengiriman signal (PRINSIP #1 tetap berlaku).
+    """
+
+    score = 0
+
+    if probability >= STRONG_PROB_THRESHOLD:
+        score += 2
+    elif probability >= WEAK_PROB_THRESHOLD:
+        score += 1
+
+    if m1_confirmation:
+        score += 2
+
+    if zone_type in ("Order Block", "Fair Value Gap"):
+        score += 1
+
+    if fill_status == "untouched":
+        score += 1
+
+    if score >= 5:
+        return "STRONG"
+
+    if score >= 3:
+        return "MEDIUM"
+
+    return "WEAK"
 
 
 def _calculate_risk(
@@ -2302,6 +2451,8 @@ def _calculate_risk(
     swing_low: Optional[float] = None,
     swing_high: Optional[float] = None,
     probability: int = 50,
+    m1_confirmation: bool = False,
+    fill_status: str = "untouched",
 ):
 
     candles = candles or []
@@ -2329,11 +2480,29 @@ def _calculate_risk(
     )
 
     # =====================================================
+    # BUFFER NOISE — DISESUAIKAN STATUS ZONA (FIX #5)
+    #
+    # Zona yang masih "untouched" (segar, belum pernah
+    # disentuh harga) dianggap lebih valid, jadi buffer
+    # noise-nya bisa lebih sempit. Zona "full" (sudah
+    # pernah ditembus) dianggap kurang meyakinkan, jadi
+    # butuh buffer lebih lebar supaya tidak gampang kena
+    # SL akibat noise di sekitar level yang sudah "aus".
+    # =====================================================
+
+    if fill_status == "untouched":
+        atr_buffer_factor = 0.4
+    elif fill_status == "partial":
+        atr_buffer_factor = 0.5
+    else:
+        atr_buffer_factor = 0.65
+
+    # =====================================================
     # JARAK SL DARI ANALISA (SEBELUM DI-CLAMP)
     #
     # Dasar jarak = jarak ke tepi zona entry (kalau ada)
-    # ditambah setengah ATR sebagai buffer noise, atau
-    # ATR penuh kalau zona tidak tersedia.
+    # ditambah buffer ATR sebagai noise, atau ATR penuh
+    # kalau zona tidak tersedia.
     # =====================================================
 
     if bias == "bullish":
@@ -2346,7 +2515,7 @@ def _calculate_risk(
 
         raw_risk = (
             (entry_price - zone_reference)
-            + atr * 0.5
+            + atr * atr_buffer_factor
         )
 
     else:
@@ -2359,7 +2528,7 @@ def _calculate_risk(
 
         raw_risk = (
             (zone_reference - entry_price)
-            + atr * 0.5
+            + atr * atr_buffer_factor
         )
 
     if raw_risk <= 0:
@@ -2382,10 +2551,13 @@ def _calculate_risk(
     )
 
     # =====================================================
-    # RR DARI ANALISA (KEKUATAN SINYAL) — DIBATASI DAFTAR
+    # RR DARI ANALISA (KEKUATAN SINYAL + M1 CONFIRMATION)
     # =====================================================
 
-    rr1 = _select_rr1(probability)
+    rr1 = _select_rr1(
+        probability,
+        m1_confirmation=m1_confirmation,
+    )
 
     rr2 = round(rr1 + RR2_EXTRA, 1)
 
@@ -2440,7 +2612,15 @@ def _calculate_risk(
     )
 
 # =====================================================
-# ENTRY DESCRIPTION — REALTIME
+# ENTRY DESCRIPTION — REALTIME / PENDING
+#
+# FIX #4:
+# Sebelumnya fungsi ini hanya pernah dipanggil dengan
+# order_type == "Market" (karena entry selalu dipaksa
+# market). Sekarang order_type bisa juga "Buy Limit" /
+# "Sell Limit", jadi deskripsinya disesuaikan supaya
+# tidak menampilkan teks "MARKET ENTRY" untuk pending
+# order.
 # =====================================================
 
 def _build_entry_description(
@@ -2451,16 +2631,21 @@ def _build_entry_description(
     zone_type: str,
 ) -> str:
 
-    # =================================================
-    # SEMUA ENTRY REALTIME
-    # =================================================
-
     if order_type == "Market":
 
         return (
             f"MARKET ENTRY — "
             f"entry realtime "
             f"{_price_display(entry_price)}"
+        )
+
+    if order_type in ("Buy Limit", "Sell Limit"):
+
+        return (
+            f"{order_type.upper()} — "
+            f"menunggu harga ke "
+            f"{_price_display(entry_price)} "
+            f"({zone_type})"
         )
 
     # =================================================
@@ -3366,25 +3551,48 @@ def generate_signal(
             zone_timeframe = "M5"
 
     # =====================================================
-    # ENTRY PRICE — REALTIME
+    # FINAL M1 CONFIRMATION (dibutuhkan sebelum entry/order
+    # type & risk calc supaya keduanya bisa memakai info ini)
     # =====================================================
 
-    # Entry selalu menggunakan harga market saat ini.
-    # OB / FVG tidak lagi digunakan sebagai harga entry.
-
-    entry_price = current_price
-
+    m1_confirmation = (
+        m1_confirmation_buy
+        if final_bias == "bullish"
+        else m1_confirmation_sell
+    )
 
     # =====================================================
-    # ENTRY ORDER — REALTIME
+    # ENTRY PRICE & ORDER TYPE — ZONA SMC DIPRIORITASKAN
+    #
+    # FIX #4:
+    # Sebelumnya entry SELALU market entry di harga sekarang,
+    # sehingga OB/FVG/Demand/Supply yang sudah ditemukan
+    # hanya jadi teks di reasoning, tidak pernah benar-benar
+    # dipakai sebagai titik masuk. Sekarang:
+    #   - Kalau zona entry berjarak lebih dari
+    #     MARKET_ENTRY_TOLERANCE dari harga sekarang, pakai
+    #     PENDING ORDER (Buy Limit / Sell Limit) tepat di
+    #     zona tersebut.
+    #   - Kalau harga sudah dekat zona, tetap market entry
+    #     seperti biasa (PRINSIP #7 tetap dipertahankan).
     # =====================================================
 
-    # Tidak ada lagi Buy Limit / Sell Limit.
-    # Semua signal menggunakan market entry.
+    order_type, is_pending = _determine_order_type(
+        bias=final_bias,
+        entry_price=zone_price,
+        current_price=current_price,
+        has_zone=True,
+        fill_status=fill_status,
+        m1_confirmation=m1_confirmation,
+    )
 
-    order_type = "Market"
+    if is_pending:
 
-    is_pending = False
+        entry_price = zone_price
+
+    else:
+
+        entry_price = current_price
 
 
     # =====================================================
@@ -3406,6 +3614,10 @@ def generate_signal(
 
     # =====================================================
     # RISK — ANALYSIS BASED
+    #
+    # FIX #5: sekarang juga mempertimbangkan m1_confirmation
+    # (untuk memilih tier RR) dan fill_status (untuk buffer
+    # noise SL).
     # =====================================================
 
     (
@@ -3427,6 +3639,8 @@ def generate_signal(
             if final_bias == "bullish"
             else probability_sell
         ),
+        m1_confirmation=m1_confirmation,
+        fill_status=fill_status,
     )
 
     # =====================================================
@@ -3540,13 +3754,18 @@ def generate_signal(
         supply_high = zone_high
 
     # =====================================================
-    # FINAL M1 CONFIRMATION
+    # SIGNAL STRENGTH LABEL (FIX #6)
     # =====================================================
 
-    m1_confirmation = (
-        m1_confirmation_buy
-        if final_bias == "bullish"
-        else m1_confirmation_sell
+    signal_strength = _classify_strength(
+        probability=(
+            probability_buy
+            if final_bias == "bullish"
+            else probability_sell
+        ),
+        m1_confirmation=m1_confirmation,
+        fill_status=fill_status,
+        zone_type=zone_type,
     )
 
     # =====================================================
@@ -3597,7 +3816,8 @@ def generate_signal(
             f"BUY {probability_buy}% vs "
             f"SELL {probability_sell}%. "
             f"Arah dipilih: "
-            f"{'BUY' if final_bias == 'bullish' else 'SELL'}."
+            f"{'BUY' if final_bias == 'bullish' else 'SELL'}. "
+            f"Kekuatan sinyal: {signal_strength}."
         )
     )
 
@@ -3784,7 +4004,8 @@ def generate_signal(
             (
                 "M1 belum memberikan rejection yang kuat. "
                 "Karena engine harus tetap menghasilkan signal, "
-                "probability disesuaikan tanpa membatalkan setup."
+                "RR TP1/TP2 diturunkan ke tier yang lebih "
+                "konservatif tanpa membatalkan setup."
             )
         )
 
@@ -3818,7 +4039,7 @@ def generate_signal(
     reasons.append(
         (
             f"SL/TP dihitung dari analisa (zona entry + "
-            f"volatilitas candle + target swing), bukan "
+            f"volatilitas candle + status zona), bukan "
             f"pip tetap. Risk/Reward: "
             f"TP1 1:{rr_tp1:.2f}, "
             f"TP2 1:{rr_tp2:.2f}."
@@ -4011,6 +4232,8 @@ def generate_signal(
         tp1_pips=tp1_pips_actual,
 
         tp2_pips=tp2_pips_actual,
+
+        strength=signal_strength,
     )
 
     # =====================================================
@@ -4141,18 +4364,34 @@ def _wrap_reason(
 
 
 # =========================================================
+# STRENGTH BADGE (FIX #6)
+# =========================================================
+
+def _strength_emoji(
+    strength: str,
+) -> str:
+
+    if strength == "STRONG":
+        return "🔥"
+
+    if strength == "WEAK":
+        return "⚠️"
+
+    return "⭐"
+
+
+# =========================================================
 # FORMAT SIGNAL — SHORT
 #
 # Format utama untuk member.
 #
 # KONSEP:
-# - ENTRY = harga realtime
-# - Tidak ada Buy Limit / Sell Limit
-# - Tidak ada "tunggu turun/naik"
-# - Tidak menampilkan Market sekarang
+# - ENTRY = harga realtime ATAU pending order di zona SMC
+#   (FIX #4)
 # - OB/FVG ditampilkan sebagai LOW RISK ZONE
 # - SL / TP dihitung dari ANALISA (zona + volatilitas +
-#   target struktur), bukan pip tetap dari config.
+#   status zona), bukan pip tetap dari config.
+# - Menampilkan label kekuatan sinyal (FIX #6).
 # =========================================================
 
 def format_signal_short(
@@ -4186,14 +4425,23 @@ def format_signal_short(
 
 
     # =====================================================
-    # ENTRY REALTIME
-    #
-    # PENTING:
-    # Entry sekarang menggunakan current_price,
-    # bukan lagi entry dari pending order / zona.
+    # ENTRY — REALTIME ATAU PENDING (FIX #4)
     # =====================================================
 
-    realtime_entry = sig.current_price
+    if sig.is_pending:
+
+        entry_line = (
+            f"🎯 {sig.order_type.upper()}: "
+            f"`{_price_display(sig.entry_price)}` "
+            f"(market: {_price_display(sig.current_price)})"
+        )
+
+    else:
+
+        entry_line = (
+            f"🎯 ENTRY: "
+            f"`{_price_display(sig.entry_price)}`"
+        )
 
 
     # =====================================================
@@ -4234,19 +4482,18 @@ def format_signal_short(
         (
             f"🏆 Probability tertinggi: "
             f"*{sig.probability}%* "
-            f"→ *{direction_text}*"
+            f"→ *{direction_text}* "
+            f"{_strength_emoji(sig.strength)} "
+            f"_{sig.strength}_"
         ),
 
         "",
 
         # =============================================
-        # REALTIME ENTRY
+        # ENTRY
         # =============================================
 
-        (
-            f"🎯 ENTRY: "
-            f"`{_price_display(realtime_entry)}`"
-        ),
+        entry_line,
 
         "",
 
@@ -4364,6 +4611,13 @@ def format_signal_detail(
 
         "",
 
+        (
+            f"{_strength_emoji(sig.strength)} *Kekuatan Sinyal: "
+            f"{sig.strength}*"
+        ),
+
+        "",
+
         # ================================================
         # MARKET NOW
         # ================================================
@@ -4389,6 +4643,11 @@ def format_signal_detail(
         (
             f"📌 Status zona      : "
             f"*{sig.fill_status}*"
+        ),
+
+        (
+            f"📦 Tipe order       : "
+            f"*{sig.order_type}*"
         ),
 
         "",
@@ -4735,7 +4994,9 @@ def format_signal_message(
         (
             f"🏆 Probability tertinggi: "
             f"*{sig.probability}%* "
-            f"→ *{direction_text}*"
+            f"→ *{direction_text}* "
+            f"{_strength_emoji(sig.strength)} "
+            f"_{sig.strength}_"
         ),
 
         "",
@@ -5072,6 +5333,7 @@ def debug_signal(
         f"Entry             : {sig.entry_price}\n"
         f"Order             : {sig.order_type}\n"
         f"Pending           : {sig.is_pending}\n"
+        f"Strength          : {sig.strength}\n"
         f"Probability BUY   : {sig.probability_buy}%\n"
         f"Probability SELL  : {sig.probability_sell}%\n"
         f"Probability FINAL : {sig.probability}%\n"
