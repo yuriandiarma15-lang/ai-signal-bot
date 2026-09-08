@@ -220,6 +220,28 @@ FIX #6 — TIDAK ADA LABEL KUALITAS SINYAL UNTUK MEMBER/ADMIN
     melihat mana sinyal yang confidence-nya benar-benar tinggi
     vs yang sekadar "harus keluar karena jadwal jam". Data ini
     juga memudahkan audit winrate per level strength ke depan.
+
+FIX #7 — "LOW RISK ZONE" TIDAK LAGI DUPLIKAT DARI ENTRY
+
+    SEBELUM:
+        Setelah FIX #4, entry (pending order atau market)
+        SELALU sama/tumpang-tindih dengan zone_low-zone_high
+        yang ditampilkan di bagian "LOW RISK ZONE". Akibatnya
+        member melihat dua baris berbeda ("ENTRY" dan "LOW RISK
+        ZONE") yang sebenarnya menunjuk ke area yang sama --
+        membingungkan, dan tidak memberi informasi tambahan.
+
+    SESUDAH:
+        "LOW RISK ZONE" sekarang direpurpose menjadi area
+        RE-ENTRY CADANGAN: satu langkah ATR lebih dalam dari
+        zona entry utama, ke arah discount (bullish) / premium
+        (bearish). Interpretasinya untuk member: kalau harga
+        menembus zona entry utama tanpa reaksi (invalid), area
+        ini adalah zona low-risk berikutnya untuk dipantau
+        sebelum benar-benar menyerah pada arah signal. Ini
+        murni informasi tambahan (tidak mengubah SL/TP/entry
+        yang sudah dieksekusi), dihitung oleh
+        _build_backup_zone().
 =============================================================
 """
 
@@ -459,6 +481,14 @@ class TradeSignal:
     ob_low: Optional[float] = None
 
     ob_high: Optional[float] = None
+
+    # =====================================================
+    # FIX #7 — BACKUP / RE-ENTRY ZONE (LOW RISK ZONE)
+    # =====================================================
+
+    backup_zone_low: Optional[float] = None
+
+    backup_zone_high: Optional[float] = None
 
     # =====================================================
     # ANALYSIS-BASED SL/TP DISTANCE (DISPLAY)
@@ -1523,6 +1553,64 @@ def _build_fallback_zone(
         "timeframe": timeframe,
         "index": -1,
     }
+
+
+# =========================================================
+# BACKUP / RE-ENTRY ZONE (FIX #7)
+# =========================================================
+
+def _build_backup_zone(
+    bias: str,
+    zone_low: float,
+    zone_high: float,
+    candles: List[Candle],
+):
+    """
+    Menghitung area re-entry cadangan, satu langkah ATR lebih
+    dalam dari zona entry utama (ke arah discount untuk
+    bullish, ke arah premium untuk bearish).
+
+    Ini BUKAN zona entry aktif -- murni informasi tambahan
+    untuk member: kalau harga menembus zona entry utama tanpa
+    reaksi (invalid), inilah area low-risk berikutnya yang
+    layak dipantau sebelum menyerah pada arah signal.
+    """
+
+    sample = (candles or [])[-10:]
+
+    ranges = [
+        (float(c.high) - float(c.low))
+        for c in sample
+        if (c.high - c.low) > 0
+    ]
+
+    atr = (
+        sum(ranges) / len(ranges)
+        if ranges
+        else _pips_to_price(20)
+    )
+
+    step = max(
+        atr,
+        _pips_to_price(15),
+    )
+
+    if bias == "bullish":
+
+        backup_high = zone_low
+
+        backup_low = zone_low - step
+
+    else:
+
+        backup_low = zone_high
+
+        backup_high = zone_high + step
+
+    return (
+        round(backup_low, 2),
+        round(backup_high, 2),
+    )
 
 
 # =========================================================
@@ -3551,6 +3639,20 @@ def generate_signal(
             zone_timeframe = "M5"
 
     # =====================================================
+    # BACKUP / RE-ENTRY ZONE (FIX #7)
+    # =====================================================
+
+    (
+        backup_zone_low,
+        backup_zone_high,
+    ) = _build_backup_zone(
+        bias=final_bias,
+        zone_low=zone_low,
+        zone_high=zone_high,
+        candles=recent_m5,
+    )
+
+    # =====================================================
     # FINAL M1 CONFIRMATION (dibutuhkan sebelum entry/order
     # type & risk calc supaya keduanya bisa memakai info ini)
     # =====================================================
@@ -4227,6 +4329,10 @@ def generate_signal(
 
         ob_high=ob_high,
 
+        backup_zone_low=backup_zone_low,
+
+        backup_zone_high=backup_zone_high,
+
         sl_pips=sl_pips_actual,
 
         tp1_pips=tp1_pips_actual,
@@ -4428,40 +4534,41 @@ def format_signal_short(
     # ENTRY — REALTIME ATAU PENDING (FIX #4)
     # =====================================================
 
+    zone_type = (
+        sig.zone_type
+        if sig.zone_type
+        else "SMC Zone"
+    )
+
     if sig.is_pending:
 
         entry_line = (
             f"🎯 {sig.order_type.upper()}: "
             f"`{_price_display(sig.entry_price)}` "
-            f"(market: {_price_display(sig.current_price)})"
+            f"(market: {_price_display(sig.current_price)}) "
+            f"— {zone_type}"
         )
 
     else:
 
         entry_line = (
             f"🎯 ENTRY: "
-            f"`{_price_display(sig.entry_price)}`"
+            f"`{_price_display(sig.entry_price)}` "
+            f"— {zone_type}"
         )
 
 
     # =====================================================
-    # LOW RISK ZONE
+    # LOW RISK ZONE (FIX #7)
+    #
+    # Sekarang menampilkan area RE-ENTRY CADANGAN, bukan
+    # zona entry utama (yang sudah tumpang tindih dengan
+    # baris ENTRY di atas).
     # =====================================================
 
     zone_text = _range_display(
-        sig.zone_low,
-        sig.zone_high
-    )
-
-
-    # =====================================================
-    # ZONE TYPE
-    # =====================================================
-
-    zone_type = (
-        sig.zone_type
-        if sig.zone_type
-        else "SMC Zone"
+        sig.backup_zone_low,
+        sig.backup_zone_high,
     )
 
 
@@ -4533,14 +4640,15 @@ def format_signal_short(
 
         "",
 
-        "🛡 *LOW RISK ZONE*",
+        "🛡 *LOW RISK ZONE (Cadangan Re-Entry)*",
 
         (
             f"📍 `{zone_text}`"
         ),
 
         (
-            f"🧩 *{zone_type}*"
+            "_Kalau entry utama tertembus tanpa reaksi, "
+            "ini area low-risk berikutnya untuk dipantau._"
         ),
 
         "━━━━━━━━━━━━━━━━━━",
@@ -4648,6 +4756,11 @@ def format_signal_detail(
         (
             f"📦 Tipe order       : "
             f"*{sig.order_type}*"
+        ),
+
+        (
+            f"🛡 Re-entry cadangan: "
+            f"`{_range_display(sig.backup_zone_low, sig.backup_zone_high)}`"
         ),
 
         "",
