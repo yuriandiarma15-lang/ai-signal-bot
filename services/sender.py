@@ -2,22 +2,24 @@
 services/sender.py
 
 XAU AI SIGNAL BOT
+=================
+
 Telegram Signal Sender
-=====================
 
 Fungsi:
 - Mengirim signal ke member aktif
+- Mengirim signal yang sama ke Group Topic
 - Menyimpan signal SHORT + DETAIL
 - Satu signal menggunakan satu signal_id
-- Tombol "📊 Detail Analisa"
+- Tombol "📊 Detail Analisa" hanya untuk member pribadi
 - Detail tidak dikirim sebagai pesan baru
 - Retry Google Sheets
 - Retry Telegram
 - Validasi Telegram ID
 - Tidak menghentikan broadcast jika satu member gagal
+- Group Topic menggunakan signal yang sama dengan private
 
-FLOW
-----
+FLOW:
 
 TradeSignal
     ↓
@@ -29,30 +31,25 @@ save_signal(short, detail)
     ↓
 signal_id
     ↓
-create_detail_keyboard(signal_id)
+Private:
+    short_text + Detail Keyboard
+
+Group:
+    short_text dipotong sampai RR
+    + garis
+    + footer XAU AI SMC REAL
     ↓
-ambil member aktif
-    ↓
-kirim ke setiap member
-
-
-CATATAN
--------
-
-Callback tombol Detail ditangani oleh callback handler,
-BUKAN oleh file ini.
-
-Contoh callback_data:
-
-    detail:ABC123
-
-Callback handler nantinya mengambil signal berdasarkan
-signal_id tersebut dan menampilkan detail menggunakan
-edit_text / edit_caption sehingga tidak membuat pesan baru.
+Group Topic
 """
+
+
+# =========================================================
+# IMPORT
+# =========================================================
 
 import asyncio
 import logging
+import os
 
 from typing import Any, Dict, Optional
 
@@ -88,31 +85,66 @@ from services.signal_store import (
     save_signal,
 )
 
-from services.combined_signal import (
-    process_signal,
+
+# =========================================================
+# LOGGER
+# =========================================================
+
+logger = logging.getLogger(
+    __name__
 )
-
-
-logger = logging.getLogger(__name__)
 
 
 # =========================================================
 # CONFIG
 # =========================================================
 
-# Delay antar member.
-#
-# Tujuan:
-# mengurangi risiko Telegram flood limit.
-#
+# ---------------------------------------------------------
+# Delay antar member
+# ---------------------------------------------------------
+
 SEND_DELAY = 0.15
 
 
-# Parse mode signal.
-#
-# Signal builder saat ini menggunakan Markdown.
-#
+# ---------------------------------------------------------
+# Parse mode
+# ---------------------------------------------------------
+
 PARSE_MODE = "Markdown"
+
+
+# =========================================================
+# GROUP CONFIG
+# =========================================================
+
+# ---------------------------------------------------------
+# Telegram Group ID
+#
+# Contoh:
+#
+# GROUP_SIGNAL_CHAT_ID=-1001234567890
+#
+# ---------------------------------------------------------
+
+GROUP_SIGNAL_CHAT_ID = os.getenv(
+    "GROUP_SIGNAL_CHAT_ID",
+    ""
+).strip()
+
+
+# ---------------------------------------------------------
+# Telegram Topic ID
+#
+# Contoh:
+#
+# GROUP_SIGNAL_TOPIC_ID=123
+#
+# ---------------------------------------------------------
+
+GROUP_SIGNAL_TOPIC_ID = os.getenv(
+    "GROUP_SIGNAL_TOPIC_ID",
+    ""
+).strip()
 
 
 # =========================================================
@@ -126,16 +158,6 @@ MEMBER_RETRY_DELAY = 2
 
 # =========================================================
 # TELEGRAM RETRY
-# =========================================================
-#
-# Retry hanya untuk error sementara.
-#
-# Jangan retry:
-#
-# - Forbidden
-# - Chat tidak ditemukan
-# - BadRequest permanen
-#
 # =========================================================
 
 TELEGRAM_RETRY_COUNT = 3
@@ -158,11 +180,20 @@ def empty_result(
         "total": 0,
         "spreadsheet_error": spreadsheet_error,
         "retry": retry,
+
+        # Group information
+        "group_success": False,
+        "group_failed": False,
+        "group_chat_id": GROUP_SIGNAL_CHAT_ID,
+        "group_topic_id": GROUP_SIGNAL_TOPIC_ID,
+
+        # Signal
+        "signal_id": None,
     }
 
 
 # =========================================================
-# FORMAT SIGNAL
+# FORMAT SIGNAL PRIVATE
 # =========================================================
 
 def format_trade_signal(
@@ -215,6 +246,148 @@ def format_trade_signal(
 
 
 # =========================================================
+# FORMAT SIGNAL GROUP
+# =========================================================
+
+def format_signal_group(
+    short_text: str,
+) -> str:
+    """
+    Membuat format signal khusus Group Topic.
+
+    DATA TIDAK DIHITUNG ULANG.
+
+    short_text berasal dari signal yang sama
+    yang dikirim ke private member.
+
+    Group hanya menampilkan sampai baris RR.
+
+    Tidak menampilkan:
+    - Low Risk Zone
+    - Detail Analisa
+    - tombol
+    - disclaimer
+    - money management
+
+    Format akhir:
+
+    🚨 XAU AI SMC REAL
+    ━━━━━━━━━━━━━━━━━━
+    ...
+    📐 RR : ...
+    ━━━━━━━━━━━━━━━━━━
+    🤖 XAU AI SMC REAL — AI Agent Gold
+    """
+
+    if not isinstance(
+        short_text,
+        str,
+    ):
+
+        return ""
+
+
+    if not short_text.strip():
+
+        return ""
+
+
+    lines = short_text.splitlines()
+
+    group_lines = []
+
+
+    # =====================================================
+    # AMBIL SAMPAI RR
+    # =====================================================
+
+    found_rr = False
+
+    for line in lines:
+
+        # -------------------------------------------------
+        # Jika sudah menemukan RR, jangan ambil baris
+        # setelahnya.
+        # -------------------------------------------------
+
+        if found_rr:
+            break
+
+
+        group_lines.append(
+            line
+        )
+
+
+        # -------------------------------------------------
+        # Deteksi baris RR
+        #
+        # Contoh:
+        #
+        # 📐 RR  : TP1 1:1.10 | TP2 1:1.90
+        #
+        # -------------------------------------------------
+
+        stripped = line.strip()
+
+        if stripped.startswith(
+            "📐 RR"
+        ):
+
+            found_rr = True
+
+
+    # =====================================================
+    # FALLBACK
+    # =====================================================
+
+    # Jika format signal tidak memiliki baris RR,
+    # gunakan seluruh short_text.
+    #
+    # Ini mencegah group_text menjadi kosong.
+
+    if not found_rr:
+
+        group_lines = lines
+
+
+    # =====================================================
+    # HAPUS KOSONG DI AKHIR
+    # =====================================================
+
+    while group_lines and not group_lines[-1].strip():
+
+        group_lines.pop()
+
+
+    # =====================================================
+    # GARIS PEMBATAS
+    # =====================================================
+
+    group_lines.append(
+        "━━━━━━━━━━━━━━━━━━"
+    )
+
+
+    # =====================================================
+    # FOOTER GROUP
+    # =====================================================
+
+    group_lines.append(
+        "🤖 XAU AI SMC REAL — AI Agent Gold"
+    )
+
+
+    # =====================================================
+    # RESULT
+    # =====================================================
+
+    return "\n".join(
+        group_lines
+    )
+
+
+# =========================================================
 # DETAIL KEYBOARD
 # =========================================================
 
@@ -225,10 +398,10 @@ def create_detail_keyboard(
     """
     Membuat tombol Detail Analisa.
 
+    Tombol hanya digunakan untuk private member.
+
     callback_data:
         detail:<signal_id>
-
-    Detail nantinya ditangani callback handler.
     """
 
     return InlineKeyboardMarkup(
@@ -395,10 +568,15 @@ async def send_one_message(
     telegram_id: int,
     text: str,
     reply_markup=None,
+    message_thread_id: Optional[int] = None,
 ) -> bool:
 
     """
     Mengirim satu pesan Telegram.
+
+    Bisa digunakan untuk:
+    - Private
+    - Group Topic
 
     Retry hanya untuk error sementara.
     """
@@ -410,18 +588,28 @@ async def send_one_message(
 
         try:
 
+            send_kwargs = {
+                "chat_id": telegram_id,
+                "text": text,
+                "parse_mode": PARSE_MODE,
+                "disable_web_page_preview": True,
+                "reply_markup": reply_markup,
+            }
+
+
+            # =================================================
+            # TOPIC
+            # =================================================
+
+            if message_thread_id is not None:
+
+                send_kwargs[
+                    "message_thread_id"
+                ] = message_thread_id
+
+
             await bot.send_message(
-
-                chat_id=telegram_id,
-
-                text=text,
-
-                parse_mode=PARSE_MODE,
-
-                disable_web_page_preview=True,
-
-                reply_markup=reply_markup,
-
+                **send_kwargs
             )
 
 
@@ -444,9 +632,11 @@ async def send_one_message(
             logger.warning(
                 "Telegram rate limit | "
                 "telegram_id=%s | "
+                "topic=%s | "
                 "retry_after=%s | "
                 "attempt=%s/%s",
                 telegram_id,
+                message_thread_id,
                 retry_after,
                 attempt,
                 TELEGRAM_RETRY_COUNT,
@@ -469,8 +659,10 @@ async def send_one_message(
             logger.warning(
                 "Telegram server error | "
                 "telegram_id=%s | "
+                "topic=%s | "
                 "attempt=%s/%s | error=%s",
                 telegram_id,
+                message_thread_id,
                 attempt,
                 TELEGRAM_RETRY_COUNT,
                 repr(e),
@@ -494,8 +686,10 @@ async def send_one_message(
             logger.warning(
                 "Telegram network error | "
                 "telegram_id=%s | "
+                "topic=%s | "
                 "attempt=%s/%s | error=%s",
                 telegram_id,
+                message_thread_id,
                 attempt,
                 TELEGRAM_RETRY_COUNT,
                 repr(e),
@@ -511,16 +705,17 @@ async def send_one_message(
 
 
         # =================================================
-        # USER BLOCKED BOT
+        # USER BLOCKED BOT / FORBIDDEN
         # =================================================
 
         except TelegramForbiddenError as e:
 
             logger.warning(
                 "Telegram Forbidden | "
-                "user mungkin memblokir bot | "
-                "telegram_id=%s | error=%s",
+                "telegram_id=%s | "
+                "topic=%s | error=%s",
                 telegram_id,
+                message_thread_id,
                 repr(e),
             )
 
@@ -535,8 +730,10 @@ async def send_one_message(
 
             logger.error(
                 "Telegram BadRequest | "
-                "telegram_id=%s | error=%s",
+                "telegram_id=%s | "
+                "topic=%s | error=%s",
                 telegram_id,
+                message_thread_id,
                 repr(e),
             )
 
@@ -551,8 +748,11 @@ async def send_one_message(
 
             logger.exception(
                 "Error tidak terduga saat mengirim Telegram | "
-                "telegram_id=%s | attempt=%s/%s",
+                "telegram_id=%s | "
+                "topic=%s | "
+                "attempt=%s/%s",
                 telegram_id,
+                message_thread_id,
                 attempt,
                 TELEGRAM_RETRY_COUNT,
             )
@@ -567,6 +767,179 @@ async def send_one_message(
 
 
     return False
+
+
+# =========================================================
+# SEND SIGNAL TO GROUP TOPIC
+# =========================================================
+
+async def send_signal_to_group(
+    bot,
+    group_text: str,
+) -> bool:
+
+    """
+    Mengirim signal ke Telegram Group Topic.
+
+    Tidak menggunakan tombol Detail.
+
+    Tidak membuat signal baru.
+
+    group_text berasal dari TradeSignal yang sama
+    dengan private member.
+    """
+
+    # =====================================================
+    # CHECK GROUP ID
+    # =====================================================
+
+    if not GROUP_SIGNAL_CHAT_ID:
+
+        logger.warning(
+            "GROUP_SIGNAL_CHAT_ID belum dikonfigurasi. "
+            "Signal group dilewati."
+        )
+
+        return False
+
+
+    # =====================================================
+    # CHECK TOPIC ID
+    # =====================================================
+
+    if not GROUP_SIGNAL_TOPIC_ID:
+
+        logger.warning(
+            "GROUP_SIGNAL_TOPIC_ID belum dikonfigurasi. "
+            "Signal group dilewati."
+        )
+
+        return False
+
+
+    # =====================================================
+    # VALIDATE GROUP ID
+    # =====================================================
+
+    try:
+
+        group_chat_id = int(
+            GROUP_SIGNAL_CHAT_ID
+        )
+
+    except (
+        ValueError,
+        TypeError,
+    ):
+
+        logger.error(
+            "GROUP_SIGNAL_CHAT_ID tidak valid: %s",
+            GROUP_SIGNAL_CHAT_ID,
+        )
+
+        return False
+
+
+    # =====================================================
+    # VALIDATE TOPIC ID
+    # =====================================================
+
+    try:
+
+        topic_id = int(
+            GROUP_SIGNAL_TOPIC_ID
+        )
+
+    except (
+        ValueError,
+        TypeError,
+    ):
+
+        logger.error(
+            "GROUP_SIGNAL_TOPIC_ID tidak valid: %s",
+            GROUP_SIGNAL_TOPIC_ID,
+        )
+
+        return False
+
+
+    # =====================================================
+    # VALIDATE TEXT
+    # =====================================================
+
+    if not group_text:
+
+        logger.error(
+            "Group signal text kosong."
+        )
+
+        return False
+
+
+    # =====================================================
+    # LOG
+    # =====================================================
+
+    logger.info(
+        "Mengirim signal ke Group Topic | "
+        "chat_id=%s | topic_id=%s",
+        group_chat_id,
+        topic_id,
+    )
+
+
+    # =====================================================
+    # SEND
+    # =====================================================
+
+    sent = await send_one_message(
+        bot=bot,
+        telegram_id=group_chat_id,
+        text=group_text,
+        reply_markup=None,
+        message_thread_id=topic_id,
+    )
+
+
+    # =====================================================
+    # RESULT
+    # =====================================================
+
+    if sent:
+
+        logger.info(
+            "=========================================="
+        )
+
+        logger.info(
+            "GROUP SIGNAL TERKIRIM"
+        )
+
+        logger.info(
+            "Group ID : %s",
+            group_chat_id,
+        )
+
+        logger.info(
+            "Topic ID : %s",
+            topic_id,
+        )
+
+        logger.info(
+            "=========================================="
+        )
+
+    else:
+
+        logger.error(
+            "GROUP SIGNAL GAGAL | "
+            "chat_id=%s | topic_id=%s",
+            group_chat_id,
+            topic_id,
+        )
+
+
+    return sent
 
 
 # =========================================================
@@ -634,11 +1007,8 @@ def prepare_signal(
         # =================================================
 
         signal_id = save_signal(
-
             short_text,
-
             detail_text,
-
         )
 
 
@@ -697,7 +1067,19 @@ async def send_signal_to_members(
 ) -> Dict[str, Any]:
 
     """
-    Mengirim signal ke seluruh member aktif.
+    Mengirim SATU signal yang sama ke:
+
+    1. Member pribadi
+    2. Group Topic
+
+    Private:
+        short_text
+        + Detail Analisa button
+
+    Group:
+        signal-only
+        sampai RR
+        + footer
 
     Return:
 
@@ -705,7 +1087,9 @@ async def send_signal_to_members(
         "success": int,
         "failed": int,
         "total": int,
-        "signal_id": str | None
+        "signal_id": str | None,
+        "group_success": bool,
+        "group_failed": bool
     }
     """
 
@@ -716,7 +1100,7 @@ async def send_signal_to_members(
     if bot is None:
 
         logger.error(
-            "Bot Telegram tidak tersedia.",
+            "Bot Telegram tidak tersedia."
         )
 
         return empty_result()
@@ -741,7 +1125,7 @@ async def send_signal_to_members(
     except Exception:
 
         logger.exception(
-            "Gagal mempersiapkan signal.",
+            "Gagal mempersiapkan signal."
         )
 
         return empty_result()
@@ -771,10 +1155,84 @@ async def send_signal_to_members(
     if not short_text.strip():
 
         logger.error(
-            "Signal text kosong.",
+            "Signal text kosong."
         )
 
         return empty_result()
+
+
+    # =====================================================
+    # PREPARE GROUP SIGNAL
+    # =====================================================
+
+    group_text = format_signal_group(
+        short_text
+    )
+
+
+    if not group_text:
+
+        logger.warning(
+            "Group signal text kosong."
+        )
+
+
+    # =====================================================
+    # RESULT
+    # =====================================================
+
+    result = empty_result()
+
+
+    result[
+        "signal_id"
+    ] = signal_id
+
+
+    # =====================================================
+    # SEND TO GROUP FIRST
+    #
+    # Penting:
+    #
+    # Group tidak bergantung pada Google Sheets.
+    #
+    # Jadi walaupun Sheets error,
+    # signal tetap dicoba dikirim ke Group Topic.
+    # =====================================================
+
+    if group_text:
+
+        try:
+
+            group_sent = await send_signal_to_group(
+                bot=bot,
+                group_text=group_text,
+            )
+
+
+            result[
+                "group_success"
+            ] = group_sent
+
+
+            result[
+                "group_failed"
+            ] = not group_sent
+
+
+        except Exception:
+
+            logger.exception(
+                "Error mengirim signal ke Group Topic."
+            )
+
+            result[
+                "group_success"
+            ] = False
+
+            result[
+                "group_failed"
+            ] = True
 
 
     # =====================================================
@@ -791,18 +1249,19 @@ async def send_signal_to_members(
     if members is None:
 
         logger.error(
-            "SIGNAL TIDAK DIKIRIM: "
-            "Google Sheets tidak tersedia setelah retry.",
+            "SIGNAL MEMBER TIDAK DIKIRIM: "
+            "Google Sheets tidak tersedia setelah retry."
         )
 
-        result = empty_result(
-            spreadsheet_error=True,
-            retry=True,
-        )
 
-        if signal_id:
+        result[
+            "spreadsheet_error"
+        ] = True
 
-            result["signal_id"] = signal_id
+
+        result[
+            "retry"
+        ] = True
 
 
         return result
@@ -816,15 +1275,8 @@ async def send_signal_to_members(
 
         logger.warning(
             "Google Sheets berhasil dibaca, "
-            "tetapi tidak ada member aktif.",
+            "tetapi tidak ada member aktif."
         )
-
-        result = empty_result()
-
-
-        if signal_id:
-
-            result["signal_id"] = signal_id
 
 
         return result
@@ -843,16 +1295,21 @@ async def send_signal_to_members(
     failed = 0
 
 
+    result[
+        "total"
+    ] = total
+
+
     # =====================================================
     # LOG
     # =====================================================
 
     logger.info(
-        "==================================================",
+        "=================================================="
     )
 
     logger.info(
-        "Mulai broadcast signal",
+        "Mulai broadcast signal ke member"
     )
 
     logger.info(
@@ -866,12 +1323,19 @@ async def send_signal_to_members(
     )
 
     logger.info(
-        "==================================================",
+        "Group success: %s",
+        result[
+            "group_success"
+        ],
+    )
+
+    logger.info(
+        "=================================================="
     )
 
 
     # =====================================================
-    # SEND LOOP
+    # SEND LOOP MEMBER
     # =====================================================
 
     for index, member in enumerate(
@@ -933,7 +1397,9 @@ async def send_signal_to_members(
 
 
         # =================================================
-        # SEND
+        # SEND PRIVATE
+        #
+        # PRIVATE tetap mendapatkan tombol Detail.
         # =================================================
 
         sent = await send_one_message(
@@ -945,6 +1411,8 @@ async def send_signal_to_members(
             text=short_text,
 
             reply_markup=reply_markup,
+
+            message_thread_id=None,
 
         )
 
@@ -958,7 +1426,7 @@ async def send_signal_to_members(
             success += 1
 
             logger.info(
-                "Signal TERKIRIM | "
+                "Signal PRIVATE TERKIRIM | "
                 "[%s/%s] | telegram_id=%s",
                 index,
                 total,
@@ -970,7 +1438,7 @@ async def send_signal_to_members(
             failed += 1
 
             logger.error(
-                "Signal GAGAL | "
+                "Signal PRIVATE GAGAL | "
                 "[%s/%s] | telegram_id=%s",
                 index,
                 total,
@@ -993,17 +1461,24 @@ async def send_signal_to_members(
     # RESULT
     # =====================================================
 
-    result = {
+    result[
+        "success"
+    ] = success
 
-        "success": success,
 
-        "failed": failed,
+    result[
+        "failed"
+    ] = failed
 
-        "total": total,
 
-        "signal_id": signal_id,
+    result[
+        "total"
+    ] = total
 
-    }
+
+    result[
+        "signal_id"
+    ] = signal_id
 
 
     # =====================================================
@@ -1011,35 +1486,59 @@ async def send_signal_to_members(
     # =====================================================
 
     logger.info(
-        "==================================================",
+        "=================================================="
     )
 
     logger.info(
-        "Pengiriman signal selesai",
+        "Pengiriman signal selesai"
     )
 
     logger.info(
-        "Signal ID : %s",
+        "Signal ID      : %s",
         signal_id,
     )
 
     logger.info(
-        "Success    : %s",
+        "Private Success: %s",
         success,
     )
 
     logger.info(
-        "Failed     : %s",
+        "Private Failed : %s",
         failed,
     )
 
     logger.info(
-        "Total      : %s",
+        "Private Total  : %s",
         total,
     )
 
     logger.info(
-        "==================================================",
+        "Group Success  : %s",
+        result[
+            "group_success"
+        ],
+    )
+
+    logger.info(
+        "Group Failed   : %s",
+        result[
+            "group_failed"
+        ],
+    )
+
+    logger.info(
+        "Group Chat ID  : %s",
+        GROUP_SIGNAL_CHAT_ID,
+    )
+
+    logger.info(
+        "Group Topic ID : %s",
+        GROUP_SIGNAL_TOPIC_ID,
+    )
+
+    logger.info(
+        "=================================================="
     )
 
 
