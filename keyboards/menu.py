@@ -110,27 +110,17 @@ def member_menu(member):
     # ADMIN
     # =====================================================
 
-    admin_username = str(
-        ADMIN_USERNAME or ""
-    ).strip().replace(
-        "@",
-        ""
-    )
+    # Tujuan Hubungi Admin:
+    # @AdmAIassistantGold
 
+    buttons.append([
 
-    if admin_username:
+        InlineKeyboardButton(
+            text="📞 Hubungi Admin",
+            url="https://t.me/AdmAIassistantGold"
+        )
 
-        buttons.append([
-
-            InlineKeyboardButton(
-                text="📞 Hubungi Admin",
-                url=(
-                    f"https://t.me/"
-                    f"{admin_username}"
-                )
-            )
-
-        ])
+    ])
 
 
     # =====================================================
