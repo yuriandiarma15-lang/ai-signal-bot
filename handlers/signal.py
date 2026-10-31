@@ -9,6 +9,8 @@ from aiogram.filters import Command
 
 import asyncio
 import logging
+from datetime import datetime
+from zoneinfo import ZoneInfo
 
 from config.settings import (
     SOURCE_GROUP_ID,
@@ -17,6 +19,13 @@ from config.settings import (
 
 from services.membership import (
     get_active_members,
+    check_member,
+    get_manual_signal_limit,
+)
+
+from services.spreadsheet import (
+    reserve_signal_request,
+    refund_signal_request,
 )
 
 from services.scheduler import (
@@ -85,6 +94,39 @@ def hide_detail_keyboard(
 
 
 # =========================================================
+# REFUND MANUAL SIGNAL QUOTA
+# =========================================================
+
+async def refund_manual_quota(
+    telegram_id: str,
+    usage_date: str,
+):
+    """
+    Mengembalikan kuota apabila proses manual signal gagal.
+    """
+
+    try:
+
+        await asyncio.to_thread(
+            refund_signal_request,
+            telegram_id,
+            usage_date,
+        )
+
+        logger.info(
+            "MANUAL SIGNAL QUOTA REFUNDED | telegram_id=%s",
+            telegram_id,
+        )
+
+    except Exception:
+
+        logger.exception(
+            "GAGAL REFUND MANUAL SIGNAL QUOTA | telegram_id=%s",
+            telegram_id,
+        )
+
+
+# =========================================================
 # ADMIN MANUAL SIGNAL
 # =========================================================
 
@@ -95,102 +137,263 @@ async def manual_signal(
     message: Message,
 ):
 
-    username = (
-        message.from_user.username
-        if message.from_user
-        else None
-    )
-
-    # =====================================================
-    # CHECK USERNAME
-    # =====================================================
-
-    if not username:
-
-        await message.answer(
-            "❌ Username Telegram tidak ditemukan."
-        )
-
+    if not message.from_user:
         return
 
+    user = message.from_user
+
+    username = user.username or ""
+
+    telegram_id = str(user.id)
 
     # =====================================================
     # CHECK ADMIN
     # =====================================================
 
     admin_username = (
-        ADMIN_USERNAME
+        (ADMIN_USERNAME or "")
         .replace("@", "")
         .strip()
     )
 
-    if username.lower() != admin_username.lower():
-
-        await message.answer(
-            "❌ Akses ditolak."
-        )
-
-        return
-
+    is_admin = bool(
+        admin_username
+        and username
+        and username.lower() == admin_username.lower()
+    )
 
     # =====================================================
-    # LOG
+    # QUOTA CONFIG
+    # =====================================================
+
+    quota_reserved = False
+
+    usage_date = datetime.now(
+        ZoneInfo("Asia/Jakarta")
+    ).strftime("%Y-%m-%d")
+
+    daily_limit = 0
+
+    used_count = 0
+
+    package_name = ""
+
+    # =====================================================
+    # MEMBER VALIDATION
+    # =====================================================
+
+    if not is_admin:
+
+        try:
+
+            member = await asyncio.to_thread(
+                check_member,
+                telegram_id,
+            )
+
+        except Exception:
+
+            logger.exception(
+                "Gagal memeriksa membership."
+            )
+
+            await message.answer(
+                "⚠️ Gagal memeriksa membership. "
+                "Silakan coba kembali."
+            )
+
+            return
+
+        # =================================================
+        # SPREADSHEET ERROR
+        # =================================================
+
+        if member.get("error") == "spreadsheet_unavailable":
+
+            await message.answer(
+                "⚠️ Google Spreadsheet sedang tidak tersedia. "
+                "Silakan coba kembali beberapa saat lagi."
+            )
+
+            return
+
+        # =================================================
+        # MEMBER NOT FOUND
+        # =================================================
+
+        if not member.get("found"):
+
+            await message.answer(
+                "🔒 Anda belum terdaftar sebagai member "
+                "AI Assistants Gold."
+            )
+
+            return
+
+        # =================================================
+        # MEMBER EXPIRED
+        # =================================================
+
+        if not member.get("active"):
+
+            await message.answer(
+                "⛔ Langganan Anda sudah EXPIRED "
+                "atau tidak aktif.\n\n"
+                "Silakan lakukan aktivasi kembali."
+            )
+
+            return
+
+        # =================================================
+        # GET PACKAGE
+        # =================================================
+
+        package_name = (
+            member.get("package")
+            or member.get("paket")
+            or member.get("broker")
+            or "-"
+        )
+
+        # =================================================
+        # GET DAILY LIMIT
+        # =================================================
+
+        daily_limit = get_manual_signal_limit(
+            member
+        )
+
+        # =================================================
+        # PACKAGE NOT ALLOWED
+        # =================================================
+
+        if daily_limit <= 0:
+
+            await message.answer(
+                "🔒 FITUR MANUAL SIGNAL\n\n"
+                "Request manual signal hanya tersedia untuk:\n\n"
+                "🥇 Paket 1 Tahun: 2 kali per hari\n"
+                "💎 Paket 3 Tahun: 5 kali per hari\n\n"
+                "Paket 1 Bulan dan 6 Bulan tidak "
+                "mendapatkan akses request manual signal."
+            )
+
+            return
+
+        # =================================================
+        # RESERVE QUOTA
+        # =================================================
+
+        try:
+
+            allowed, used_count = await asyncio.to_thread(
+                reserve_signal_request,
+                telegram_id,
+                usage_date,
+                daily_limit,
+            )
+
+        except Exception:
+
+            logger.exception(
+                "Gagal mencatat kuota manual signal."
+            )
+
+            await message.answer(
+                "⚠️ Gagal memeriksa kuota request. "
+                "Silakan coba kembali."
+            )
+
+            return
+
+        # =================================================
+        # QUOTA EXCEEDED
+        # =================================================
+
+        if not allowed:
+
+            await message.answer(
+                "⛔ KUOTA MANUAL SIGNAL HABIS\n\n"
+                f"Paket: {package_name}\n"
+                f"Pemakaian hari ini: "
+                f"{used_count}/{daily_limit}\n\n"
+                "Kuota direset setiap pukul 00.00 WIB."
+            )
+
+            return
+
+        quota_reserved = True
+
+    # =====================================================
+    # LOG REQUEST
     # =====================================================
 
     logger.info(
-        "ADMIN REQUEST SIGNAL | @%s",
-        username,
+        "MANUAL SIGNAL REQUEST | "
+        "telegram_id=%s | username=@%s | admin=%s",
+        telegram_id,
+        username or "-",
+        is_admin,
     )
 
-
     # =====================================================
-    # INFO PROCESSING
+    # SEND LOADING MESSAGE
     # =====================================================
 
-    await message.answer(
+    try:
 
-        "⏳ *Sedang menganalisa XAUUSD...*\n\n"
-        "M5 → SMC Structure\n"
-        "M1 → Entry Timing\n"
-        "OB / FVG / Liquidity\n"
-        "Risk Management",
+        await message.answer(
+            "⏳ Sedang menganalisa XAUUSD...\n\n"
+            "M5 → SMC Structure\n"
+            "M1 → Entry Timing\n"
+            "OB / FVG / Liquidity\n"
+            "Risk Management"
+        )
 
-        parse_mode="Markdown",
+    except Exception:
 
-    )
+        logger.exception(
+            "Gagal mengirim pesan proses analisa."
+        )
 
+        if quota_reserved:
+
+            await refund_manual_quota(
+                telegram_id,
+                usage_date,
+            )
+
+        return
 
     # =====================================================
     # GENERATE SIGNAL
-    #
-    # Manual:
-    # 12 candle M5 CLOSED
     # =====================================================
 
     try:
 
         signal = await asyncio.to_thread(
-
             generate_signal,
-
             structure_candle_count=12,
-
         )
 
-    except NoTradeSignal as e:
+    except NoTradeSignal as exc:
 
         logger.info(
-            "ADMIN /signal -> NO TRADE | %s",
-            e,
+            "MANUAL /signal -> NO TRADE | %s",
+            exc,
         )
 
+        if quota_reserved:
+
+            await refund_manual_quota(
+                telegram_id,
+                usage_date,
+            )
+
         await message.answer(
-
-            "⚠️ *NO TRADE*\n\n"
-            f"{str(e)}",
-
-            parse_mode="Markdown",
-
+            "⚠️ NO TRADE\n\n"
+            f"{str(exc)}\n\n"
+            "Kuota request Anda tidak dipotong."
         )
 
         return
@@ -201,57 +404,33 @@ async def manual_signal(
             "ERROR GENERATE MANUAL SIGNAL"
         )
 
+        if quota_reserved:
+
+            await refund_manual_quota(
+                telegram_id,
+                usage_date,
+            )
+
         await message.answer(
-
-            "❌ *Gagal membuat signal.*\n\n"
-            "Terjadi error pada engine analisa.\n"
-            "Silakan coba kembali.",
-
-            parse_mode="Markdown",
-
+            "❌ Gagal membuat signal.\n\n"
+            "Terjadi error pada engine analisa. "
+            "Kuota request Anda tidak dipotong."
         )
 
         return
 
-
     # =====================================================
-    # LOG HASIL
+    # LOG SIGNAL
     # =====================================================
 
     logger.info(
-
         "MANUAL SIGNAL CREATED | "
-        "bias=%s | "
-        "entry=%s | "
-        "order=%s | "
-        "probability=%s%%",
-
-        getattr(
-            signal,
-            "bias",
-            "-",
-        ),
-
-        getattr(
-            signal,
-            "entry_price",
-            "-",
-        ),
-
-        getattr(
-            signal,
-            "order_type",
-            "-",
-        ),
-
-        getattr(
-            signal,
-            "probability",
-            "-",
-        ),
-
+        "bias=%s | entry=%s | order=%s | probability=%s%%",
+        getattr(signal, "bias", "-"),
+        getattr(signal, "entry_price", "-"),
+        getattr(signal, "order_type", "-"),
+        getattr(signal, "probability", "-"),
     )
-
 
     # =====================================================
     # FORMAT SIGNAL
@@ -273,43 +452,35 @@ async def manual_signal(
             "ERROR FORMAT SIGNAL MESSAGE"
         )
 
+        if quota_reserved:
+
+            await refund_manual_quota(
+                telegram_id,
+                usage_date,
+            )
+
         await message.answer(
-
             "❌ Signal berhasil dianalisa, "
-            "tetapi gagal memformat pesan Telegram."
-
+            "tetapi gagal memformat pesan.\n\n"
+            "Kuota request Anda tidak dipotong."
         )
 
         return
 
-
     # =====================================================
-    # SIMPAN SIGNAL + DETAIL
-    #
-    # Keduanya menggunakan signal_id yang sama.
-    #
-    # signal_id
-    # ├── signal_text
-    # └── detail_text
+    # SAVE SIGNAL DETAIL
     # =====================================================
 
     try:
 
         signal_id = save_signal(
-
             signal_text,
-
             detail_text,
-
         )
 
         logger.info(
-
-            "SIGNAL STORE SAVED | "
-            "signal_id=%s",
-
+            "SIGNAL STORE SAVED | signal_id=%s",
             signal_id,
-
         )
 
     except Exception:
@@ -320,74 +491,97 @@ async def manual_signal(
 
         signal_id = None
 
-
     # =====================================================
-    # SIAPKAN TOMBOL
+    # DETAIL BUTTON
     # =====================================================
 
-    reply_markup = None
-
-    if signal_id:
-
-        reply_markup = detail_keyboard(
-            signal_id
-        )
-
+    reply_markup = (
+        detail_keyboard(signal_id)
+        if signal_id
+        else None
+    )
 
     # =====================================================
     # SEND SIGNAL
     # =====================================================
 
+    sent = False
+
     try:
 
         await message.answer(
-
             signal_text,
-
             parse_mode="Markdown",
-
             reply_markup=reply_markup,
-
         )
 
-        logger.info(
-            "MANUAL SIGNAL BERHASIL DIKIRIM."
-        )
+        sent = True
 
     except Exception:
 
         logger.exception(
-            "ERROR SEND MANUAL SIGNAL"
+            "ERROR SEND MANUAL SIGNAL WITH MARKDOWN"
         )
 
         # =================================================
-        # FALLBACK TANPA MARKDOWN
+        # FALLBACK WITHOUT MARKDOWN
         # =================================================
 
         try:
 
             await message.answer(
-
                 signal_text,
-
                 reply_markup=reply_markup,
-
             )
+
+            sent = True
 
         except Exception:
 
             logger.exception(
-                "FALLBACK SEND SIGNAL JUGA GAGAL."
+                "FALLBACK SEND SIGNAL ALSO FAILED"
             )
+
+    # =====================================================
+    # SEND FAILED -> REFUND
+    # =====================================================
+
+    if not sent:
+
+        if quota_reserved:
+
+            await refund_manual_quota(
+                telegram_id,
+                usage_date,
+            )
+
+        await message.answer(
+            "❌ Signal gagal dikirim. "
+            "Kuota request Anda dikembalikan."
+        )
+
+        return
+
+    # =====================================================
+    # SUCCESS LOG
+    # =====================================================
+
+    if not is_admin:
+
+        logger.info(
+            "MEMBER MANUAL SIGNAL SUCCESS | "
+            "telegram_id=%s | usage=%s/%s",
+            telegram_id,
+            used_count,
+            daily_limit,
+        )
 
 
 # =========================================================
 # SHOW DETAIL ANALISA
 #
-# PENTING:
-# Tidak mengirim pesan baru.
-#
 # Pesan signal lama diedit menjadi detail.
+# Tidak mengirim pesan baru.
 # =========================================================
 
 @router.callback_query(
@@ -397,12 +591,7 @@ async def handle_detail_callback(
     callback: CallbackQuery,
 ):
 
-    # =====================================================
-    # HENTIKAN LOADING BUTTON
-    # =====================================================
-
     await callback.answer()
-
 
     # =====================================================
     # VALIDASI MESSAGE
@@ -416,7 +605,6 @@ async def handle_detail_callback(
 
         return
 
-
     # =====================================================
     # AMBIL SIGNAL ID
     # =====================================================
@@ -426,7 +614,6 @@ async def handle_detail_callback(
         1,
     )[1]
 
-
     # =====================================================
     # AMBIL DETAIL
     # =====================================================
@@ -435,28 +622,14 @@ async def handle_detail_callback(
         signal_id
     )
 
-
     if detail_text is None:
 
-        logger.warning(
-
-            "Detail analisa tidak ditemukan | "
-            "signal_id=%s",
-
-            signal_id,
-
-        )
-
         await callback.answer(
-
             "⚠️ Detail analisa sudah kadaluarsa.",
-
             show_alert=True,
-
         )
 
         return
-
 
     # =====================================================
     # EDIT PESAN YANG SAMA
@@ -465,24 +638,16 @@ async def handle_detail_callback(
     try:
 
         await callback.message.edit_text(
-
             detail_text,
-
             parse_mode="Markdown",
-
             reply_markup=hide_detail_keyboard(
                 signal_id
             ),
-
         )
 
         logger.info(
-
-            "DETAIL ANALISA SHOW | "
-            "signal_id=%s",
-
+            "DETAIL ANALISA SHOW | signal_id=%s",
             signal_id,
-
         )
 
     except Exception:
@@ -498,13 +663,10 @@ async def handle_detail_callback(
         try:
 
             await callback.message.edit_text(
-
                 detail_text,
-
                 reply_markup=hide_detail_keyboard(
                     signal_id
                 ),
-
             )
 
         except Exception:
@@ -517,11 +679,8 @@ async def handle_detail_callback(
 # =========================================================
 # HIDE DETAIL ANALISA
 #
-# PENTING:
+# Pesan detail dikembalikan menjadi signal short.
 # Tidak mengirim pesan baru.
-#
-# Pesan detail lama dikembalikan menjadi
-# signal short/original.
 # =========================================================
 
 @router.callback_query(
@@ -531,12 +690,7 @@ async def handle_hide_callback(
     callback: CallbackQuery,
 ):
 
-    # =====================================================
-    # HENTIKAN LOADING BUTTON
-    # =====================================================
-
     await callback.answer()
-
 
     # =====================================================
     # VALIDASI MESSAGE
@@ -550,7 +704,6 @@ async def handle_hide_callback(
 
         return
 
-
     # =====================================================
     # AMBIL SIGNAL ID
     # =====================================================
@@ -560,7 +713,6 @@ async def handle_hide_callback(
         1,
     )[1]
 
-
     # =====================================================
     # AMBIL SIGNAL ORIGINAL
     # =====================================================
@@ -569,28 +721,14 @@ async def handle_hide_callback(
         signal_id
     )
 
-
     if signal_text is None:
 
-        logger.warning(
-
-            "Signal short tidak ditemukan | "
-            "signal_id=%s",
-
-            signal_id,
-
-        )
-
         await callback.answer(
-
             "⚠️ Signal utama sudah kadaluarsa.",
-
             show_alert=True,
-
         )
 
         return
-
 
     # =====================================================
     # EDIT PESAN YANG SAMA
@@ -599,24 +737,16 @@ async def handle_hide_callback(
     try:
 
         await callback.message.edit_text(
-
             signal_text,
-
             parse_mode="Markdown",
-
             reply_markup=detail_keyboard(
                 signal_id
             ),
-
         )
 
         logger.info(
-
-            "DETAIL ANALISA HIDE | "
-            "signal_id=%s",
-
+            "DETAIL ANALISA HIDE | signal_id=%s",
             signal_id,
-
         )
 
     except Exception:
@@ -632,13 +762,10 @@ async def handle_hide_callback(
         try:
 
             await callback.message.edit_text(
-
                 signal_text,
-
                 reply_markup=detail_keyboard(
                     signal_id
                 ),
-
             )
 
         except Exception:
@@ -651,11 +778,10 @@ async def handle_hide_callback(
 # =========================================================
 # RECEIVE SIGNAL FROM OLD SOURCE GROUP
 #
-# Catatan:
 # Jalur ini menerima text biasa dari source group.
+# Sinyal diteruskan kepada member aktif.
 #
-# Karena source group hanya memberikan text,
-# sistem Detail Analisa tidak dibuat di jalur ini.
+# Tidak menggunakan kuota manual /signal.
 # =========================================================
 
 @router.message(
@@ -677,7 +803,6 @@ async def receive_signal(
         "======================"
     )
 
-
     # =====================================================
     # TRADING SESSION CHECK
     # =====================================================
@@ -689,7 +814,6 @@ async def receive_signal(
         )
 
         return
-
 
     # =====================================================
     # CHECK TEXT
@@ -703,13 +827,11 @@ async def receive_signal(
 
         return
 
-
     # =====================================================
     # GET SIGNAL
     # =====================================================
 
     signal_text = message.text
-
 
     print(
         "SIGNAL DITERUSKAN:"
@@ -718,7 +840,6 @@ async def receive_signal(
     print(
         signal_text
     )
-
 
     # =====================================================
     # GET ACTIVE MEMBERS
@@ -736,7 +857,6 @@ async def receive_signal(
 
         return
 
-
     if not members:
 
         print(
@@ -745,12 +865,10 @@ async def receive_signal(
 
         return
 
-
     print(
         "TOTAL MEMBER:",
         len(members),
     )
-
 
     # =====================================================
     # SEND TO MEMBERS
@@ -762,29 +880,21 @@ async def receive_signal(
             "telegram_id"
         )
 
-
         if not telegram_id:
 
             continue
 
-
         try:
 
             await message.bot.send_message(
-
-                chat_id=int(
-                    telegram_id
-                ),
-
+                chat_id=int(telegram_id),
                 text=signal_text,
-
             )
 
             print(
                 "TERKIRIM:",
                 telegram_id
             )
-
 
         except Exception as e:
 
