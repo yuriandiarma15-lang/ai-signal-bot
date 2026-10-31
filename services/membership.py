@@ -44,12 +44,11 @@ def normalize_package(package):
     Menormalisasi nama paket dari Google Sheet.
 
     Contoh:
-
-    '1 Bulan'     -> '1 bulan'
-    '6 BULAN'     -> '6 bulan'
-    '12 Bulan'    -> '12 bulan'
-    'Lifetime'    -> 'lifetime'
-    'MITRA HFM'   -> 'mitra hfm'
+    '1 Bulan'   -> '1 bulan'
+    '6 BULAN'   -> '6 bulan'
+    '12 Bulan'  -> '12 bulan'
+    'Lifetime'  -> 'lifetime'
+    'MITRA HFM' -> 'mitra hfm'
     """
 
     if package is None:
@@ -67,20 +66,16 @@ def has_fundamental_access(member):
     Menentukan apakah member boleh menggunakan
     fitur Fundamental.
 
-    Akses:
-
     1 Bulan    -> NO
     MITRA HFM  -> NO
-
-    6 Bulan     -> YES
-    12 Bulan    -> YES
-    Lifetime    -> YES
+    6 Bulan    -> YES
+    12 Bulan   -> YES
+    Lifetime   -> YES
     """
 
     if not member:
         return False
 
-    # Member harus ACTIVE
     if not member.get("active", False):
         return False
 
@@ -97,17 +92,7 @@ def has_fundamental_access(member):
 
 def has_combined_access(member):
     """
-    Menentukan apakah member boleh menggunakan
-    fitur Combined AI.
-
     Combined AI mengikuti akses Fundamental.
-
-    1 Bulan    -> NO
-    MITRA HFM  -> NO
-
-    6 Bulan     -> YES
-    12 Bulan    -> YES
-    Lifetime    -> YES
     """
 
     return has_fundamental_access(member)
@@ -201,8 +186,7 @@ def _parse_expired_date(value):
         datetime
         None
 
-    Fungsi ini dibuat agar Lifetime dapat diproses
-    tanpa tanggal expired.
+    Lifetime dapat diproses tanpa tanggal expired.
     """
 
     if value is None:
@@ -244,9 +228,7 @@ def is_lifetime_package(package):
 # CHECK MEMBER
 # =========================================================
 
-def check_member(
-    telegram_id
-):
+def check_member(telegram_id):
     """
     Mengecek membership berdasarkan telegram_id.
 
@@ -274,7 +256,6 @@ def check_member(
 
     members = _get_members_with_retry()
 
-
     # =====================================================
     # GOOGLE SHEETS GAGAL
     # =====================================================
@@ -289,13 +270,11 @@ def check_member(
             "error": "spreadsheet_unavailable"
         }
 
-
     # =====================================================
     # CARI USER
     # =====================================================
 
     user_rows = []
-
 
     for member in members:
 
@@ -306,13 +285,9 @@ def check_member(
             )
         ).strip()
 
-
         if sheet_id == str(telegram_id):
 
-            user_rows.append(
-                member
-            )
-
+            user_rows.append(member)
 
     # =====================================================
     # USER BELUM ADA
@@ -327,23 +302,17 @@ def check_member(
             "package": None
         }
 
-
     # =====================================================
     # CARI DATA VALID
     # =====================================================
 
     valid_rows = []
 
-
     for row in user_rows:
 
         package = normalize_package(
-            row.get(
-                "paket",
-                ""
-            )
+            row.get("paket") or row.get("broker", "")
         )
-
 
         status = str(
             row.get(
@@ -351,7 +320,6 @@ def check_member(
                 ""
             )
         ).strip().upper()
-
 
         # =================================================
         # LIFETIME
@@ -363,10 +331,6 @@ def check_member(
             status == "ACTIVE"
         ):
 
-            # Lifetime tidak membutuhkan tanggal expired.
-            # Kita berikan datetime.max agar selalu dianggap
-            # sebagai membership paling baru.
-
             valid_rows.append(
                 (
                     datetime.max,
@@ -375,7 +339,6 @@ def check_member(
             )
 
             continue
-
 
         # =================================================
         # MEMBERSHIP NORMAL
@@ -388,7 +351,6 @@ def check_member(
             )
         )
 
-
         if expired is not None:
 
             valid_rows.append(
@@ -397,7 +359,6 @@ def check_member(
                     row
                 )
             )
-
 
     # =====================================================
     # DATA TIDAK VALID
@@ -412,7 +373,6 @@ def check_member(
             "package": None
         }
 
-
     # =====================================================
     # AMBIL MEMBERSHIP TERBARU
     # =====================================================
@@ -422,9 +382,7 @@ def check_member(
         key=lambda x: x[0]
     )
 
-
     today = datetime.now().date()
-
 
     status = str(
         latest.get(
@@ -433,12 +391,7 @@ def check_member(
         )
     ).strip().upper()
 
-
-    package = latest.get(
-        "paket",
-        ""
-    )
-
+    package = latest.get("paket") or latest.get("broker", "")
 
     # =====================================================
     # LIFETIME ACTIVE
@@ -465,7 +418,6 @@ def check_member(
             "data": latest
         }
 
-
     # =====================================================
     # MEMBER ACTIVE
     # =====================================================
@@ -479,25 +431,14 @@ def check_member(
         return {
             "found": True,
             "active": True,
-
-            "expired":
-                latest.get(
-                    "expired"
-                ),
-
-            "package":
-                package,
-
-            "username":
-                latest.get(
-                    "username",
-                    ""
-                ),
-
-            "data":
-                latest
+            "expired": latest.get("expired"),
+            "package": package,
+            "username": latest.get(
+                "username",
+                ""
+            ),
+            "data": latest
         }
-
 
     # =====================================================
     # MEMBER EXPIRED / INACTIVE
@@ -506,23 +447,13 @@ def check_member(
     return {
         "found": True,
         "active": False,
-
-        "expired":
-            latest.get(
-                "expired"
-            ),
-
-        "package":
-            package,
-
-        "username":
-            latest.get(
-                "username",
-                ""
-            ),
-
-        "data":
-            latest
+        "expired": latest.get("expired"),
+        "package": package,
+        "username": latest.get(
+            "username",
+            ""
+        ),
+        "data": latest
     }
 
 
@@ -540,7 +471,6 @@ def get_active_members():
 
     members = _get_members_with_retry()
 
-
     # =====================================================
     # GOOGLE SHEETS GAGAL
     # =====================================================
@@ -554,9 +484,7 @@ def get_active_members():
 
         return None
 
-
     checked = {}
-
 
     for member in members:
 
@@ -567,19 +495,12 @@ def get_active_members():
             )
         ).strip()
 
-
         if not telegram_id:
-
             continue
 
-
         package = normalize_package(
-            member.get(
-                "paket",
-                ""
-            )
+            member.get("paket") or member.get("broker", "")
         )
-
 
         status = str(
             member.get(
@@ -587,7 +508,6 @@ def get_active_members():
                 ""
             )
         ).strip().upper()
-
 
         # =================================================
         # LIFETIME
@@ -599,16 +519,12 @@ def get_active_members():
             status == "ACTIVE"
         ):
 
-            # Lifetime selalu dianggap paling tinggi
-            # daripada membership tanggal biasa.
-
             checked[telegram_id] = (
                 datetime.max,
                 member
             )
 
             continue
-
 
         # =================================================
         # NORMAL MEMBERSHIP
@@ -621,11 +537,8 @@ def get_active_members():
             )
         )
 
-
         if expired is None:
-
             continue
-
 
         # =================================================
         # AMBIL EXPIRED TERBARU
@@ -640,10 +553,7 @@ def get_active_members():
 
         else:
 
-            old_expired = checked[
-                telegram_id
-            ][0]
-
+            old_expired = checked[telegram_id][0]
 
             if expired > old_expired:
 
@@ -652,16 +562,13 @@ def get_active_members():
                     member
                 )
 
-
     # =====================================================
     # FILTER ACTIVE
-    # =================================================
+    # =====================================================
 
     result = []
 
-
     today = datetime.now().date()
-
 
     for expired, member in checked.values():
 
@@ -672,14 +579,9 @@ def get_active_members():
             )
         ).strip().upper()
 
-
         package = normalize_package(
-            member.get(
-                "paket",
-                ""
-            )
+            member.get("paket") or member.get("broker", "")
         )
-
 
         # =================================================
         # LIFETIME
@@ -691,12 +593,9 @@ def get_active_members():
             status == "ACTIVE"
         ):
 
-            result.append(
-                member
-            )
+            result.append(member)
 
             continue
-
 
         # =================================================
         # NORMAL ACTIVE
@@ -708,9 +607,45 @@ def get_active_members():
             status == "ACTIVE"
         ):
 
-            result.append(
-                member
-            )
-
+            result.append(member)
 
     return result
+
+
+# =========================================================
+# MANUAL SIGNAL PACKAGE LIMIT
+# =========================================================
+
+def get_manual_signal_limit(member):
+    """
+    Paket yang boleh request manual signal:
+
+    1 Tahun / 12 Bulan: 2 kali per hari
+    3 Tahun / 36 Bulan: 5 kali per hari
+
+    Paket 1 Bulan dan 6 Bulan tidak mendapat akses.
+    Admin ditangani terpisah di handler signal.py.
+    """
+
+    if not member or not member.get("active", False):
+        return 0
+
+    package = normalize_package(
+        member.get("package")
+        or member.get("paket")
+        or member.get("broker")
+        or ""
+    )
+
+    package = " ".join(
+        package.replace("_", " ").split()
+    )
+
+    limits = {
+        "1 tahun": 2,
+        "12 bulan": 2,
+        "3 tahun": 5,
+        "36 bulan": 5,
+    }
+
+    return limits.get(package, 0)
