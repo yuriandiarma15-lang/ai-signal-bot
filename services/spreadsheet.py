@@ -1,7 +1,7 @@
-
 import os
 import json
 import logging
+import threading
 
 import gspread
 
@@ -27,14 +27,11 @@ scope = [
 # GOOGLE CREDENTIALS
 # =========================================================
 
-google_credentials_raw = os.getenv(
-    "GOOGLE_CREDENTIALS"
-)
+google_credentials_raw = os.getenv("GOOGLE_CREDENTIALS")
 
 if not google_credentials_raw:
     raise RuntimeError(
-        "GOOGLE_CREDENTIALS belum diset di "
-        "Environment Variables hosting."
+        "GOOGLE_CREDENTIALS belum diset di Environment Variables hosting."
     )
 
 try:
@@ -65,15 +62,13 @@ client = gspread.authorize(creds)
 
 if not SPREADSHEET_ID:
     raise RuntimeError(
-        "SPREADSHEET_ID belum diset di "
-        "Environment Variables."
+        "SPREADSHEET_ID belum diset di Environment Variables."
     )
 
 spreadsheet = client.open_by_key(
     SPREADSHEET_ID
 )
 
-# Mempertahankan perilaku lama: gunakan worksheet pertama.
 sheet = spreadsheet.sheet1
 
 logger.info(
@@ -88,33 +83,28 @@ logger.info(
 
 def get_members():
     """
-    Mengambil member dari Google Sheets tanpa get_all_records(),
-    sehingga header kosong atau duplikat tidak langsung
-    menyebabkan GSpreadException.
+    Mengambil data member dari worksheet pertama.
 
-    Fungsi ini hanya membaca spreadsheet, tidak mengubah data.
+    Header kosong dan duplikat ditangani otomatis.
+    Kolom D (broker) juga dipetakan ke paket.
     """
 
     try:
         values = sheet.get_all_values()
 
         if not values:
-            logger.warning(
-                "[SHEET] Worksheet kosong."
-            )
+            logger.warning("[SHEET] Worksheet kosong.")
             return []
 
-        # Header dari baris pertama.
         headers = [
             str(value).strip()
             for value in values[0]
         ]
 
-        # Hapus hanya kolom kosong di ujung kanan apabila
-        # seluruh data pada kolom tersebut juga kosong.
         last_used = len(headers)
 
         for column_index in range(last_used - 1, -1, -1):
+
             header_empty = not headers[column_index]
 
             column_data_empty = all(
@@ -132,15 +122,15 @@ def get_members():
 
         if not headers:
             logger.warning(
-                "[SHEET] Baris header tidak berisi nama kolom."
+                "[SHEET] Header tidak ditemukan."
             )
             return []
 
-        # Pastikan setiap nama kolom unik.
         unique_headers = []
         seen_headers = set()
 
         for index, header in enumerate(headers, start=1):
+
             if not header:
                 header = f"_column_{index}"
 
@@ -156,15 +146,13 @@ def get_members():
 
         members = []
 
-        # Baris pertama adalah header; data dimulai baris kedua.
         for row_number, row in enumerate(values[1:], start=2):
+
             row = row[:last_used]
 
-            # Lewati baris yang benar-benar kosong.
             if not any(str(value).strip() for value in row):
                 continue
 
-            # Lengkapi kolom yang kosong agar panjangnya sama.
             if len(row) < last_used:
                 row += [""] * (last_used - len(row))
 
@@ -172,10 +160,14 @@ def get_members():
                 zip(unique_headers, row)
             )
 
+            # Kolom D berisi nama paket.
+            if not member.get("paket"):
+                member["paket"] = member.get("broker", "")
+
             members.append(member)
 
         logger.info(
-            "[SHEET] Berhasil membaca %s baris member.",
+            "[SHEET] Berhasil membaca %s member.",
             len(members),
         )
 
@@ -186,3 +178,185 @@ def get_members():
             "[SHEET] Gagal mengambil data member."
         )
         raise
+
+
+# =========================================================
+# MANUAL SIGNAL USAGE
+# =========================================================
+
+SIGNAL_USAGE_SHEET = "Signal_Usage"
+
+SIGNAL_USAGE_HEADERS = [
+    "telegram_id",
+    "tanggal",
+    "jumlah_request",
+]
+
+_SIGNAL_USAGE_LOCK = threading.Lock()
+
+
+# =========================================================
+# GET / CREATE USAGE WORKSHEET
+# =========================================================
+
+def get_signal_usage_sheet():
+
+    try:
+        ws = spreadsheet.worksheet(
+            SIGNAL_USAGE_SHEET
+        )
+
+    except gspread.WorksheetNotFound:
+
+        ws = spreadsheet.add_worksheet(
+            title=SIGNAL_USAGE_SHEET,
+            rows=2000,
+            cols=3,
+        )
+
+        ws.update(
+            range_name="A1:C1",
+            values=[SIGNAL_USAGE_HEADERS],
+        )
+
+        return ws
+
+    headers = ws.row_values(1)
+
+    if not headers:
+
+        ws.update(
+            range_name="A1:C1",
+            values=[SIGNAL_USAGE_HEADERS],
+        )
+
+    elif headers[:3] != SIGNAL_USAGE_HEADERS:
+
+        raise RuntimeError(
+            "Header Signal_Usage tidak sesuai."
+        )
+
+    return ws
+
+
+# =========================================================
+# RESERVE SIGNAL REQUEST
+# =========================================================
+
+def reserve_signal_request(
+    telegram_id,
+    usage_date,
+    daily_limit,
+):
+    """
+    Mencatat satu request manual.
+
+    Return:
+        (True, jumlah_request)
+        (False, jumlah_request)
+    """
+
+    telegram_id = str(telegram_id).strip()
+    usage_date = str(usage_date).strip()
+    daily_limit = int(daily_limit)
+
+    with _SIGNAL_USAGE_LOCK:
+
+        ws = get_signal_usage_sheet()
+
+        rows = ws.get_all_values()
+
+        for row_number, row in enumerate(
+            rows[1:],
+            start=2,
+        ):
+
+            if len(row) < 3:
+                continue
+
+            if (
+                str(row[0]).strip() == telegram_id
+                and str(row[1]).strip() == usage_date
+            ):
+
+                try:
+                    current = int(row[2] or 0)
+                except (TypeError, ValueError):
+                    current = 0
+
+                if current >= daily_limit:
+                    return False, current
+
+                updated = current + 1
+
+                ws.update_cell(
+                    row_number,
+                    3,
+                    updated,
+                )
+
+                return True, updated
+
+        ws.append_row(
+            [
+                telegram_id,
+                usage_date,
+                1,
+            ],
+            value_input_option="USER_ENTERED",
+        )
+
+        return True, 1
+
+
+# =========================================================
+# REFUND SIGNAL REQUEST
+# =========================================================
+
+def refund_signal_request(
+    telegram_id,
+    usage_date,
+):
+    """
+    Mengembalikan satu kuota jika proses signal gagal.
+    """
+
+    telegram_id = str(telegram_id).strip()
+    usage_date = str(usage_date).strip()
+
+    with _SIGNAL_USAGE_LOCK:
+
+        ws = get_signal_usage_sheet()
+
+        rows = ws.get_all_values()
+
+        for row_number, row in enumerate(
+            rows[1:],
+            start=2,
+        ):
+
+            if len(row) < 3:
+                continue
+
+            if (
+                str(row[0]).strip() == telegram_id
+                and str(row[1]).strip() == usage_date
+            ):
+
+                try:
+                    current = int(row[2] or 0)
+                except (TypeError, ValueError):
+                    return
+
+                updated = max(
+                    0,
+                    current - 1,
+                )
+
+                ws.update_cell(
+                    row_number,
+                    3,
+                    updated,
+                )
+
+                return
